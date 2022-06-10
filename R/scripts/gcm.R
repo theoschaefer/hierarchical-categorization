@@ -21,10 +21,10 @@ n_trials_per_stim <- 4
 tbl <- tbl %>% mutate(
   x1 = scale(x1)[, 1],
   x2 = scale(x2)[, 1],
-  n_correct = ceiling(exp(-(abs(x1) + abs(x2))) * n_trials_per_stim),
+  n_correct = 3,#ceiling(exp(-(abs(x1) + abs(x2))) * n_trials_per_stim),
   n_trials = n_trials_per_stim
 )
-tbl$n_correct[tbl$category == 1] <- abs(tbl$n_correct[tbl$category == 1] - max(tbl$n_correct))
+#tbl$n_correct[tbl$category == 1] <- abs(tbl$n_correct[tbl$category == 1] - max(tbl$n_correct))
 ggplot(tbl, aes(x1, x2, group = category)) +
   geom_raster(aes(fill = category, alpha = n_correct)) +
   guides(fill = "none") +
@@ -53,13 +53,11 @@ data {
   array[n_stim, n_stim] real<lower=0> d2;
 }
 
-transformed data {
-  real b = .5;
-}
 
 parameters {
   real <lower=0> c;
   real <lower=0,upper=1> w;
+  real <lower=0,upper=1> b;
 }
 
 transformed parameters {
@@ -84,7 +82,7 @@ model {
   n_correct ~ binomial(n_trials, theta);
   c ~ uniform(0, 5);
   w ~ beta(1, 1);
-  
+  b ~ beta(1, 1);
   
 }
 
@@ -100,7 +98,7 @@ names(vars$data)
 mod$exe_file()
 
 l_data <- list(
-  n_stim = nrow(tbl), n_trials = tbl$n_correct, n_correct = tbl$n_correct, 
+  n_stim = nrow(tbl), n_trials = tbl$n_trials, n_correct = tbl$n_correct, 
   cat = as.numeric(as.character(tbl$category)),
   d1 = m_distances_x1, d2 = m_distances_x2
 )
@@ -134,3 +132,6 @@ ggplot(tbl_long, aes(value, group = param)) +
   scale_color_brewer(palette = "Set1")
 
 
+ggplot(tbl, aes(n_correct, pred_means, group = category)) +
+  geom_point(aes(color = category)) +
+  stat_summary(geom = "line", fun.y = mean)
