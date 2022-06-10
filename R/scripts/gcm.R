@@ -2,7 +2,7 @@ library(cmdstanr)
 library(rutils)
 library(tidyverse)
 
-dir_home_grown <- c("R/utils/ellipse-utils.R")
+dir_home_grown <- c("R/utils/ellipse-utils.R", "R/utils/utils.R")
 walk(dir_home_grown, source)
 
 check_cmdstan_toolchain(fix = TRUE, quiet = TRUE)
@@ -30,66 +30,85 @@ ggplot(tbl, aes(x1, x2, group = category)) +
   guides(fill = "none") +
   theme_bw()
 
-
+is_same_category <- function(i, tbl) {
+  # same category gets a 1, different a 2
+  abs(as.numeric(tbl$category[i] == tbl$category) - 1) + 1
+}
 # compute pairwise distances
 m_distances_x1 <- map(1:nrow(tbl), distance_1d, tbl, "x1") %>% unlist() %>%
-  matrix(byrow = FALSE, nrow = nrow(tbl), ncol = nrow(tbl))
+  matrix(byrow = TRUE, nrow = nrow(tbl), ncol = nrow(tbl))
 m_distances_x2 <- map(1:nrow(tbl), distance_1d, tbl, "x2") %>% unlist() %>%
-  matrix(byrow = FALSE, nrow = nrow(tbl), ncol = nrow(tbl))
+  matrix(byrow = TRUE, nrow = nrow(tbl), ncol = nrow(tbl))
 
 # Run Stan Model ----------------------------------------------------------
 
-
-stan_binomial <- write_stan_file("
+# NOTE should byrow be true?? 
+stan_gcm <- write_stan_file("
 data {
   int n_stim;
   array[n_stim] int n_trials; // n trials
-  array[n_stim] int n_correct; // correct categorization responses
-  array[n_stim, 2] real x;
-  array[n_stim, n_stim] real<lower=0> d;
+  array[n_stim] int n_correct; // n correct categorization responses
+  array[n_stim] int cat; // actual category for a given stimulus
+  array[n_stim, n_stim] real<lower=0> d1;
+  array[n_stim, n_stim] real<lower=0> d2;
 }
+
+transformed data {
+  real b = .5;
+}
+
 parameters {
-  array[n_stim] real<lower=0,upper=1> theta;
-  array[n_stim] real mu;
-  real <lower=0> sigma_stimulus;
+  real <lower=0> c;
+  real <lower=0,upper=1> w;
+}
+
+transformed parameters {
+  array[n_stim, n_stim] real <lower=0,upper=1> s;
+  array[n_stim, 2] real <lower=0> sumsim;
+  array[n_stim] real <lower=0,upper=1> theta;
+  row_vector[2] bs = [b, 1 - b];
+  
+  // Similarities
+  for (i in 1:n_stim){
+  sumsim[i, 1] = 0;
+  sumsim[i, 2] = 0;
+    for (j in 1:n_stim){
+      s[i, j] = exp(-square(c)*(w*square(d1[i, j])+(1-w)*square(d2[i, j])));
+      sumsim[i, cat[j]] = sumsim[i, cat[j]] + s[i,j] * bs[cat[j]];
+    }
+    theta[i] = sumsim[i, cat[i]] / sum(sumsim[i, ]);
+  }
 }
 
 model {
   n_correct ~ binomial(n_trials, theta);
-  logit(theta) ~ normal(mu, sigma_stimulus);
-  mu ~ normal(0, 1);
-  sigma_stimulus ~ uniform(0, 10);
+  c ~ uniform(0, 5);
+  w ~ beta(1, 1);
   
-  // Similarities
-  for (i in 1:nstim){
-    for (j in 1:nstim){
-      s[i,j] <- exp(-c*(w*d1[i,j]+(1-w)*d2[i,j]))
-    }
-  }
+  
 }
 
 generated quantities {
   array[n_stim] int n_correct_predict;
   n_correct_predict = binomial_rng(n_trials, theta);
-
 }
 
 ")
-mod <- cmdstan_model(stan_binomial)
+mod <- cmdstan_model(stan_gcm)
 vars <- mod$variables()
 names(vars$data)
 mod$exe_file()
 
 l_data <- list(
   n_stim = nrow(tbl), n_trials = tbl$n_correct, n_correct = tbl$n_correct, 
-  x = as.matrix(tbl[, c("x1", "x2")]),
+  cat = as.numeric(as.character(tbl$category)),
   d1 = m_distances_x1, d2 = m_distances_x2
 )
 
 
-fit <- mod$sample(data = l_data)
+fit <- mod$sample(data = l_data, iter_sampling = 500, iter_warmup = 500)
 tbl_summary <- fit$summary()
-tbl_draws <- fit$draws(format = "df")
+tbl_draws <- fit$draws(variables = c("c", "w", "bs", "theta", "sumsim"), format = "df")
 tbl_posterior <- tbl_draws %>% 
   select(mu, .chain) %>% 
   rename(chain = .chain) %>%
