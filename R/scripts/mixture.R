@@ -204,41 +204,40 @@ data {
  int N; //number of data
  array[N] int n_trials; // number of trials per item
  array[N] int n_correct; // number of true categorization responses per item
- int cat[N]; // true category labels
- vector[D] y[N]; //data
+ array[N] int cat; // true category labels
+ matrix[D, N] y; //data
 }
 
 parameters {
- ordered[D] mu[K]; //mixture component means
- cholesky_factor_corr[D] L[K]; //cholesky factor of covariance
+ array[K] ordered[D] mu; //mixture component means
+ array[K] cholesky_factor_corr[D] L; //cholesky factor of covariance
 }
 
 transformed parameters {
-  array[n_stim] real theta;
+  vector<lower=0,upper=1>[N] theta;
+  matrix[N,K] ps;
   
   for (n in 1:N){
-  theta[n] = exp(ps[n,cat[n]] - log_sum_exp(ps[n,]))
- }
+     for (k in 1:K){
+        //increment log probability of the gaussian
+        ps[n, k] = multi_normal_cholesky_lpdf(y[n] | mu[k], L[k]); 
+     }
+     theta[n] = exp(ps[n,cat[n]] - log_sum_exp(ps[n,]));
+  }
 }
 
 model {
- array[N,K] real ps;
- 
+
  for(k in 1:K){
  mu[k] ~ normal(0,3);
  L[k] ~ lkj_corr_cholesky(D);
  }
- 
- for (n in 1:N){
-   for (k in 1:K){
-    ps[n,k] = multi_normal_cholesky_lpdf(y[n] | mu[k], L[k]); //increment log probability of the gaussian
-   }
- }
+
  n_correct ~ binomial(n_trials, theta);
 }
 
 generated quantities {
- corr_matrix[D] Sigma[K];
+ array[K] corr_matrix[D] Sigma;
  for (k in 1:K){
  Sigma[k] = multiply_lower_tri_self_transpose(L[k]);
  }
@@ -252,7 +251,7 @@ l_data <- list(
   N = nrow(tbl_two_ellipses),
   n_trials = tbl_two_ellipses$n_trials,
   n_correct = tbl_two_ellipses$n_correct,
-  cat = tbl_two_ellipses$category,
+  cat = as.numeric(tbl_two_ellipses$category) - 1,
   y = tbl_two_ellipses[, c("x1", "x2")]
 )
 mod_2d_cat <- cmdstan_model(stan_mixture_cat_2d)
