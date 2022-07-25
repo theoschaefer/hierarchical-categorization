@@ -172,10 +172,91 @@ l_data <- list(
   D = 2,
   K = 2,
   N = nrow(tbl_two_ellipses),
+  n_trials = tbl_two_ellipses$n_trials,
   y = tbl_two_ellipses[, c("x1", "x2")]
 )
 mod_2d <- cmdstan_model(stan_mixture_2d)
 fit <- mod_2d$sample(data = l_data, iter_sampling = 5000, iter_warmup = 2000, chains = 1)
+tbl_draws <- fit$draws(variables = c("mu", "Sigma", "theta"), format = "df")
+idx_params <- map(c("mu", "Sigma", "theta"), ~ str_detect(names(tbl_draws), .x)) %>%
+  reduce(rbind) %>% colSums()
+names_params <- names(tbl_draws)[as.logical(idx_params)]
+tbl_posterior <- tbl_draws[, c(all_of(names_params), ".chain")] %>% 
+  rename(chain = .chain) %>%
+  pivot_longer(names_params, names_to = "parameter", values_to = "value")
+kd <- rutils::estimate_kd(tbl_posterior, names_params)
+l <- sd_bfs(tbl_posterior, names_params, sqrt(2)/4)
+rutils::plot_posterior("L[1,2,1]", tbl_posterior, l[[2]]) + coord_cartesian(xlim = c(0, 1))
+map(names_params, plot_posterior, tbl = tbl_posterior, tbl_thx = l[[2]])
+
+
+fit$summary(variables = c("mu", "Sigma"))
+
+
+
+# Actual Model ------------------------------------------------------------
+
+
+stan_mixture_cat_2d <- write_stan_file("
+data {
+ int D; //number of dimensions
+ int K; //number of gaussians
+ int N; //number of data
+ array[N] int n_trials; // number of trials per item
+ array[N] int n_correct; // number of true categorization responses per item
+ int cat[N]; // true category labels
+ vector[D] y[N]; //data
+}
+
+parameters {
+ ordered[D] mu[K]; //mixture component means
+ cholesky_factor_corr[D] L[K]; //cholesky factor of covariance
+}
+
+transformed parameters {
+  array[n_stim] real theta;
+  
+  for (n in 1:N){
+  theta[n] = exp(ps[n,cat[n]] - log_sum_exp(ps[n,]))
+ }
+}
+
+model {
+ array[N,K] real ps;
+ 
+ for(k in 1:K){
+ mu[k] ~ normal(0,3);
+ L[k] ~ lkj_corr_cholesky(D);
+ }
+ 
+ for (n in 1:N){
+   for (k in 1:K){
+    ps[n,k] = multi_normal_cholesky_lpdf(y[n] | mu[k], L[k]); //increment log probability of the gaussian
+   }
+ }
+ n_correct ~ binomial(n_trials, theta);
+}
+
+generated quantities {
+ corr_matrix[D] Sigma[K];
+ for (k in 1:K){
+ Sigma[k] = multiply_lower_tri_self_transpose(L[k]);
+ }
+ 
+}
+")
+
+l_data <- list(
+  D = 2,
+  K = 2,
+  N = nrow(tbl_two_ellipses),
+  n_trials = tbl_two_ellipses$n_trials,
+  n_correct = tbl_two_ellipses$n_correct,
+  cat = tbl_two_ellipses$category,
+  y = tbl_two_ellipses[, c("x1", "x2")]
+)
+mod_2d_cat <- cmdstan_model(stan_mixture_cat_2d)
+fit <- mod_2d_cat$sample(data = l_data, iter_sampling = 5000, iter_warmup = 2000, chains = 1)
 tbl_draws <- fit$draws(variables = c("mu", "Sigma", "theta"), format = "df")
 idx_params <- map(c("mu", "Sigma", "theta"), ~ str_detect(names(tbl_draws), .x)) %>%
   reduce(rbind) %>% colSums()
