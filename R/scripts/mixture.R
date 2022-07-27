@@ -104,10 +104,10 @@ n_trials_per_stim <- 4
 tbl <- tbl %>% mutate(
   x1 = scale(x1)[, 1],
   x2 = scale(x2)[, 1],
-  n_correct = 3,#ceiling(exp(-(abs(x1) + abs(x2))) * n_trials_per_stim),
+  n_correct = ceiling(exp(-(abs(x1) + abs(x2))) * n_trials_per_stim),#3,#
   n_trials = n_trials_per_stim
 )
-#tbl$n_correct[tbl$category == 1] <- abs(tbl$n_correct[tbl$category == 1] - max(tbl$n_correct))
+tbl$n_correct[tbl$category == 1 & tbl$n_correct == 1] <- 3#abs(tbl$n_correct[tbl$category == 1] - max(tbl$n_correct))
 ggplot(tbl, aes(x1, x2, group = category)) +
   geom_raster(aes(fill = category, alpha = n_correct)) +
   guides(fill = "none") +
@@ -168,6 +168,9 @@ ggplot(tbl_two_ellipses, aes(x1, x2, group = category)) +
   geom_raster(aes(fill = category, alpha = n_correct)) +
   guides(fill = "none") +
   theme_bw()
+
+
+
 l_data <- list(
   D = 2,
   K = 2,
@@ -205,7 +208,7 @@ data {
  array[N] int n_trials; // number of trials per item
  array[N] int n_correct; // number of true categorization responses per item
  array[N] int cat; // true category labels
- matrix[D, N] y; //data
+ matrix[N, D] y; //data
 }
 
 parameters {
@@ -238,35 +241,42 @@ model {
 
 generated quantities {
  array[K] corr_matrix[D] Sigma;
+ array[N] int n_correct_predict;
+ 
  for (k in 1:K){
  Sigma[k] = multiply_lower_tri_self_transpose(L[k]);
  }
- 
+  n_correct_predict = binomial_rng(n_trials, theta);
 }
 ")
 
 l_data <- list(
   D = 2,
   K = 2,
-  N = nrow(tbl_two_ellipses),
-  n_trials = tbl_two_ellipses$n_trials,
-  n_correct = tbl_two_ellipses$n_correct,
-  cat = as.numeric(tbl_two_ellipses$category) - 1,
-  y = tbl_two_ellipses[, c("x1", "x2")]
+  N = nrow(tbl),
+  n_trials = tbl$n_trials,
+  n_correct = tbl$n_correct,
+  cat = as.numeric(tbl$category),
+  y = tbl[, c("x1", "x2")] %>% as.data.frame() %>% as.matrix()
 )
 mod_2d_cat <- cmdstan_model(stan_mixture_cat_2d)
 fit <- mod_2d_cat$sample(data = l_data, iter_sampling = 5000, iter_warmup = 2000, chains = 1)
-tbl_draws <- fit$draws(variables = c("mu", "Sigma", "theta"), format = "df")
+tbl_draws <- fit$draws(variables = c("ps"), format = "df")
 idx_params <- map(c("mu", "Sigma", "theta"), ~ str_detect(names(tbl_draws), .x)) %>%
   reduce(rbind) %>% colSums()
 names_params <- names(tbl_draws)[as.logical(idx_params)]
 tbl_posterior <- tbl_draws[, c(all_of(names_params), ".chain")] %>% 
   rename(chain = .chain) %>%
-  pivot_longer(names_params, names_to = "parameter", values_to = "value")
+  pivot_longer(all_of(names_params), names_to = "parameter", values_to = "value")
 kd <- rutils::estimate_kd(tbl_posterior, names_params)
 l <- sd_bfs(tbl_posterior, names_params, sqrt(2)/4)
 rutils::plot_posterior("L[1,2,1]", tbl_posterior, l[[2]]) + coord_cartesian(xlim = c(0, 1))
 map(names_params, plot_posterior, tbl = tbl_posterior, tbl_thx = l[[2]])
 
 
-fit$summary(variables = c("mu", "Sigma"))
+fit$summary(variables = c("mu", "Sigma", "theta"))
+
+
+
+names_thetas <- names(tbl_draws)[startsWith(names(tbl_draws), "theta")]
+tbl$pred_theta <- colMeans(tbl_draws[, names_thetas])

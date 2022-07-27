@@ -21,10 +21,10 @@ n_trials_per_stim <- 4
 tbl <- tbl %>% mutate(
   x1 = scale(x1)[, 1],
   x2 = scale(x2)[, 1],
-  n_correct = 3,#ceiling(exp(-(abs(x1) + abs(x2))) * n_trials_per_stim),
+  n_correct = ceiling(exp(-(abs(x1) + abs(x2))) * n_trials_per_stim),
   n_trials = n_trials_per_stim
 )
-#tbl$n_correct[tbl$category == 1] <- abs(tbl$n_correct[tbl$category == 1] - max(tbl$n_correct))
+tbl$n_correct[tbl$category == 1 & tbl$n_correct == 1] <- 3#abs(tbl$n_correct[tbl$category == 1] - max(tbl$n_correct))
 ggplot(tbl, aes(x1, x2, group = category)) +
   geom_raster(aes(fill = category, alpha = n_correct)) +
   guides(fill = "none") +
@@ -104,11 +104,12 @@ l_data <- list(
 )
 
 
-fit <- mod$sample(data = l_data, iter_sampling = 500, iter_warmup = 500)
+fit <- mod$sample(data = l_data, iter_sampling = 500, iter_warmup = 1000, chains = 1)
 tbl_summary <- fit$summary()
-tbl_draws <- fit$draws(variables = c("c", "w", "bs", "theta", "sumsim"), format = "df")
+vars_extract <-  c("c", "w", "bs", "theta")
+tbl_draws <- fit$draws(variables = vars_extract, format = "df")
 tbl_posterior <- tbl_draws %>% 
-  select(mu, .chain) %>% 
+  select(starts_with("theta"), .chain) %>% colMeans()
   rename(chain = .chain) %>%
   pivot_longer(mu, names_to = "parameter", values_to = "value")
 kd <- rutils::estimate_kd(tbl_posterior, "mu")
@@ -119,11 +120,14 @@ l <- sd_bfs(tbl_posterior, params_bf, sqrt(2)/4)
 rutils::plot_posterior("mu", tbl_posterior, l[[2]])
 
 
+tbl$pred_accuracy <- tbl_draws %>% 
+  select(starts_with("theta")) %>% colMeans()
 
 
-
-
-
+ggplot(tbl, aes(x1, x2, group = category)) +
+  geom_raster(aes(fill = category, alpha = pred_accuracy)) +
+  guides(fill = "none") +
+  theme_bw()
 
 tbl_long <- tbl_draws[, c("theta[1]", "theta[15]", "theta[35]", "theta[36]")] %>% 
   pivot_longer(c("theta[1]", "theta[15]", "theta[35]", "theta[36]"), names_to = "param")
