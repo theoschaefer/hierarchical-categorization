@@ -26,8 +26,6 @@ my_dnorm <- function(val, mean, sd) {
 }
 
 
-
-
 tbl_cat <- pmap(tbl_params, my_dnorm, val = vals) %>%
   reduce(cbind) %>% as_tibble()
 colnames(tbl_cat) <- c("p1", "p2")
@@ -78,7 +76,9 @@ tbl_cat_samples$samples_z <- round(scale(tbl_cat_samples$samples)[,1], 1)
 
 # now for every value 
 ggplot(tbl_cat_samples, aes(samples_z, n_correct, group = cat)) +
-  geom_col(aes(fill = cat)) + facet_wrap(~ cat)
+  geom_col(aes(fill = cat)) + facet_wrap(~ cat) +
+  theme_bw() +
+  labs(x = "x", y = "Nr. Correct")
 
 
 
@@ -143,6 +143,8 @@ mod_1d_cat <- cmdstan_model(stan_cat_1d)
 fit <- mod_1d_cat$sample(
   data = l_data, iter_sampling = 5000, iter_warmup = 5000, chains = 1
 )
+file_loc <- "data/recovery/1D-model.RDS"
+fit$save_object(file = file_loc)
 tbl_draws <- fit$draws(variables = c("mu", "sigma", "theta"), format = "df")
 idx_params <- map(c("mu", "sigma"), ~ str_detect(names(tbl_draws), .x)) %>%
   reduce(rbind) %>% colSums()
@@ -205,8 +207,6 @@ ggplot(tbl_cat, aes(x1, x2)) +
   theme_bw()
 tbl_cat$x1 <- as.character(tbl_cat$x1)
 tbl_cat$x2 <- as.character(tbl_cat$x2)
-
-
 
 my_samples <- function(n, tbl_df) {
   samples_tbl <- function(n, mean, sd, cat) {
@@ -319,6 +319,8 @@ mod_2d_cat <- cmdstan_model(stan_cat_2d)
 fit <- mod_2d_cat$sample(
   data = l_data, iter_sampling = 5000, iter_warmup = 5000, chains = 1
 )
+file_loc <- "data/recovery/2D-model.RDS"
+fit$save_object(file = file_loc)
 tbl_draws <- fit$draws(variables = c("mu", "Sigma", "theta"), format = "df")
 idx_params <- map(c("mu", "Sigma"), ~ str_detect(names(tbl_draws), .x)) %>%
   reduce(rbind) %>% colSums()
