@@ -252,3 +252,91 @@ ggplot(tbl_cat_samples, aes(x1_z, x2_z, group = cat)) +
   geom_contour_filled(aes(z = theta_true, color = theta_true)) +
   facet_wrap(~ cat) + theme_bw()
 
+
+stan_cat_2d <- write_stan_file("
+data {
+ int D; //number of dimensions
+ int K; //number of gaussians
+ int N; //number of data
+ array[N] int n_trials; // number of trials per item
+ array[N] int n_correct; // number of true categorization responses per item
+ array[N] int cat; // true category labels
+ matrix[N, D] y; //data
+}
+
+parameters {
+ array[K] row_vector[D] mu; //category means
+ array[K] cholesky_factor_corr[D] L; //variance
+}
+
+transformed parameters {
+  vector<lower=0,upper=1>[N] theta;
+  matrix[N,K] lps;
+  
+  for (n in 1:N){
+     for (k in 1:K){
+        //increment log probability of the gaussian
+        lps[n, k] = multi_normal_cholesky_lpdf(y[n] | mu[k], L[k]); 
+     }
+     theta[n] = exp(lps[n,cat[n]] - log_sum_exp(lps[n,]));
+     //target += exp(lps[n,cat[n]] - log_sum_exp(lps[n,]));
+  }
+}
+
+model {
+
+ for(k in 1:K){
+   mu[k] ~ normal(0, 3);
+   L[k] ~ lkj_corr_cholesky(D);
+ }
+
+ n_correct ~ binomial(n_trials, theta);
+}
+
+generated quantities {
+ array[K] corr_matrix[D] Sigma;
+ array[N] int n_correct_predict;
+ 
+ for (k in 1:K){
+ Sigma[k] = multiply_lower_tri_self_transpose(L[k]);
+ }
+  n_correct_predict = binomial_rng(n_trials, theta);
+}
+")
+
+
+
+l_data <- list(
+  D = 2,
+  K = 2,
+  N = nrow(tbl_cat_samples),
+  n_trials = tbl_cat_samples$n_trials,
+  n_correct = tbl_cat_samples$n_correct,
+  cat = as.numeric(tbl_cat_samples$cat),
+  y = tbl_cat_samples[, c("x1_z", "x2_z")] %>% as.data.frame() %>% as.matrix()
+)
+mod_2d_cat <- cmdstan_model(stan_cat_2d)
+fit <- mod_2d_cat$sample(
+  data = l_data, iter_sampling = 5000, iter_warmup = 5000, chains = 1
+)
+tbl_draws <- fit$draws(variables = c("mu", "Sigma", "theta"), format = "df")
+idx_params <- map(c("mu", "Sigma"), ~ str_detect(names(tbl_draws), .x)) %>%
+  reduce(rbind) %>% colSums()
+names_params <- names(tbl_draws)[as.logical(idx_params)]
+tbl_posterior <- tbl_draws[, c(all_of(names_params), ".chain")] %>% 
+  rename(chain = .chain) %>%
+  pivot_longer(all_of(names_params), names_to = "parameter", values_to = "value")
+kd <- rutils::estimate_kd(tbl_posterior, names_params)
+l <- sd_bfs(tbl_posterior, names_params, sqrt(2)/4)
+map(names_params, plot_posterior, tbl = tbl_posterior, tbl_thx = l[[2]])
+
+
+tbl_summary <- fit$summary(variables = c("mu", "Sigma", "theta"))
+names_thetas <- names(tbl_draws)[startsWith(names(tbl_draws), "theta")]
+tbl_cat_samples$pred_theta <- colMeans(tbl_draws[, names_thetas])
+
+
+ggplot(tbl_cat_samples, aes(pred_theta, theta_true)) +
+  geom_point() +
+  theme_bw() +
+  labs(x = "Predicted Theta", y = "True Theta")
