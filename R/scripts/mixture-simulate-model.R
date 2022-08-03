@@ -1,13 +1,16 @@
 library(tidyverse)
+library(mvtnorm)
 library(cmdstanr)
 library(rutils)
 
 
 # idea: simulate observations from given model and model parameters
 # try to recover the data-generating model using stan
-# 
 
-# one dimensional case
+
+# 1D Case -----------------------------------------------------------------
+
+
 # two uni variate normal distributions
 # probability of choosing right category depends on ratio of probability densities
 
@@ -22,13 +25,7 @@ my_dnorm <- function(val, mean, sd) {
   map_dbl(val, dnorm, mean = mean, sd = sd)
 }
 
-my_samples <- function(n, tbl_df) {
-  samples_tbl <- function(n, mean, sd) {
-    s <- seq(mean - 2*sd, mean + 2*sd, by = .1)
-    tibble(samples = s, mean = mean, sd = sd)
-  }
-  pmap(tbl_df, samples_tbl, n = n)
-}
+
 
 
 tbl_cat <- pmap(tbl_params, my_dnorm, val = vals) %>%
@@ -38,7 +35,13 @@ tbl_cat$x <- as.character(round(vals, 1))
 tbl_cat$pcat1 <- tbl_cat$p1 / (tbl_cat$p1 + tbl_cat$p2)
 tbl_cat$pcat2 <- 1 - tbl_cat$pcat1
 
-
+my_samples <- function(n, tbl_df) {
+  samples_tbl <- function(n, mean, sd) {
+    s <- seq(mean - 2*sd, mean + 2*sd, by = .1)
+    tibble(samples = s, mean = mean, sd = sd)
+  }
+  pmap(tbl_df, samples_tbl, n = n)
+}
 # now for each category n_trials for a given x value (i.e., vals) has to be generated
 tbl_cat_samples <- my_samples(n_trials, tbl_params) %>%
   reduce(rbind) %>% mutate(
@@ -161,3 +164,91 @@ ggplot(tbl_cat_samples, aes(pred_theta, theta_true)) +
   geom_point() +
   theme_bw() +
   labs(x = "Predicted Theta", y = "True Theta")
+
+
+
+# 2D Case -----------------------------------------------------------------
+
+# two bi-variate normal distributions
+# probability of choosing right category depends on ratio of probability densities
+
+n_trials <- 4
+vals <- seq(-10, 10, by = .25)
+grid_vals <- crossing(x1 = vals, x2 = vals)
+grid_vals$val <- matrix(c(grid_vals$x1, grid_vals$x2), ncol = 2, byrow = FALSE)
+
+tbl_params <- tibble(
+  v_mean = c(list(c(-1.25, -1.25)), list(c(1.25, 1.25))),
+  m_vcov = c(list(matrix(c(1, .3, .3, 1), nrow = 2)), list(matrix(c(1, .3, .3, 1), nrow = 2))),
+  cat = factor(c(1, 2))
+)
+
+my_mvdnorm <- function(val, v_mean, m_vcov) {
+  apply(val, 1, dmvnorm, mean = v_mean, sigma = m_vcov)
+}
+
+
+
+tbl_cat <- pmap(tbl_params[, c("v_mean", "m_vcov")], my_mvdnorm, val = grid_vals$val) %>%
+  reduce(cbind) %>% as_tibble()
+colnames(tbl_cat) <- c("p1", "p2")
+tbl_x <- as.data.frame(round(grid_vals$val, 1))
+names(tbl_x) <- c("x1", "x2")
+tbl_cat <- as_tibble(cbind(tbl_cat, tbl_x))
+tbl_cat$pcat1 <- tbl_cat$p1 / (tbl_cat$p1 + tbl_cat$p2)
+tbl_cat$pcat2 <- 1 - tbl_cat$pcat1
+ggplot(tbl_cat, aes(x1, x2)) + 
+  geom_contour(aes(z = p1)) +
+  geom_contour(aes(z = p2)) +
+  # geom_tile(aes(fill = pcat1)) +
+  # scale_fill_viridis_c() +
+  theme_bw()
+tbl_cat$x1 <- as.character(tbl_cat$x1)
+tbl_cat$x2 <- as.character(tbl_cat$x2)
+
+
+
+my_samples <- function(n, tbl_df) {
+  samples_tbl <- function(n, mean, sd, cat) {
+    s <- seq(mean[1] - 2*sd[1,1], mean[1] + 2*sd[1,1], by = .25)
+    s2 <- crossing(x1 = s, x2 = s)
+    tibble(s2, v_mean = list(mean), m_vcov = list(sd), cat = cat)
+  }
+  pmap(tbl_df, samples_tbl, n = n)
+}
+
+tbl_cat_samples <- my_samples(
+  n_trials, tbl_params %>% rename(mean = v_mean, sd = m_vcov)
+  )  %>%
+  reduce(rbind) %>% mutate(
+    n_trials = n_trials,
+    x1 = as.character(round(x1, 1)),
+    x2 = as.character(round(x2, 1))
+  ) %>% left_join(
+    tbl_cat,
+    by = c("x1", "x2")
+  ) %>% mutate(
+    x1 = as.numeric(x1),
+    x2 = as.numeric(x2)
+  )
+
+
+tbl_cat_samples$n_cat1 <- pmap_dbl(tbl_cat_samples[, c("n_trials", "pcat1")], my_rbinom)
+tbl_cat_samples$n_cat2 <- n_trials - tbl_cat_samples$n_cat1
+
+tbl_cat_samples$n_correct <- pmap_dbl(
+  tbl_cat_samples[, c("n_cat1", "n_cat2", "cat")] %>% rename(c1 = n_cat1, c2 = n_cat2),
+  my_select
+)
+tbl_cat_samples$theta_true <- pmap_dbl(
+  tbl_cat_samples[, c("pcat1", "pcat2", "cat")] %>% rename(c1 = pcat1, c2=pcat2),
+  my_select
+)
+tbl_cat_samples$x1_z <- round(scale(tbl_cat_samples$x1)[,1], 1)
+tbl_cat_samples$x2_z <- round(scale(tbl_cat_samples$x2)[,1], 1)
+
+# now for every value 
+ggplot(tbl_cat_samples, aes(x1_z, x2_z, group = cat)) +
+  geom_contour_filled(aes(z = theta_true, color = theta_true)) +
+  facet_wrap(~ cat) + theme_bw()
+
