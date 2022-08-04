@@ -36,10 +36,15 @@ tbl_train_agg <- tbl_train %>%
     n_trials = n(), 
     n_correct = sum(accuracy),
     prop_correct = n_correct / n_trials
-    ) %>% ungroup()
+  ) %>% ungroup()
 
 participant_sample <- sample(unique(tbl_train_agg$participant), 1)
 tbl_sample <- tbl_train_agg %>% filter(participant == participant_sample)
+
+
+
+# GCM ---------------------------------------------------------------------
+
 
 # compute pairwise distances
 m_distances_x1 <- map(1:nrow(tbl_sample), distance_1d, tbl_sample, "d1i") %>% unlist() %>%
@@ -48,5 +53,41 @@ m_distances_x2 <- map(1:nrow(tbl_sample), distance_1d, tbl_sample, "d2i") %>% un
   matrix(byrow = TRUE, nrow = nrow(tbl_sample), ncol = nrow(tbl_sample))
 
 
+stan_gcm <- write_gcm_stan_file()
+mod <- cmdstan_model(stan_gcm)
+
+l_data <- list(
+  n_stim = nrow(tbl_sample), n_trials = tbl_sample$n_trials, 
+  n_correct = tbl_sample$n_correct, n_cat = length(unique(tbl_sample$category)),
+  cat = as.numeric(factor(tbl_sample$category, labels = c(1, 2, 3))),
+  d1 = m_distances_x1, d2 = m_distances_x2
+)
 
 
+fit_gcm <- mod$sample(
+  data = l_data, iter_sampling = 500, iter_warmup = 1000, chains = 1
+  )
+
+pars_interest <- c("theta", "b", "c", "w")
+tbl_draws <- fit_gcm$draws(variables = pars_interest, format = "df")
+idx_params <- map(pars_interest, ~ str_starts(names(tbl_draws), .x)) %>%
+  reduce(rbind) %>% colSums()
+names_params <- names(tbl_draws)[as.logical(idx_params)]
+tbl_posterior <- tbl_draws[, c(all_of(names_params), ".chain")] %>% 
+  rename(chain = .chain) %>%
+  pivot_longer(all_of(names_params), names_to = "parameter", values_to = "value")
+kd <- rutils::estimate_kd(tbl_posterior, names_params)
+l <- sd_bfs(tbl_posterior, names_params, sqrt(2)/4)
+map(names_params, plot_posterior, tbl = tbl_posterior, tbl_thx = l[[2]])
+
+
+tbl_summary <- fit_gcm$summary(variables = pars_interest)
+names_thetas <- names(tbl_draws)[startsWith(names(tbl_draws), "theta")]
+tbl_sample$pred_theta <- colMeans(tbl_draws[, names_thetas])
+
+
+ggplot(tbl_sample, aes(pred_theta, prop_correct)) +
+  geom_point() +
+  geom_abline() +
+  theme_bw() +
+  labs(x = "Predicted Theta", y = "Proportion Correct")
