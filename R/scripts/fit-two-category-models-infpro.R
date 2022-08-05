@@ -40,54 +40,99 @@ tbl_train_agg <- tbl_train %>%
 
 participant_sample <- sample(unique(tbl_train_agg$participant), 1)
 tbl_sample <- tbl_train_agg %>% filter(participant == participant_sample)
-
+tbl_sample <- tbl_sample %>% mutate(
+  d1i_z = scale(d1i)[, 1],
+  d2i_z = scale(d2i)[, 1]
+)
 
 
 # GCM ---------------------------------------------------------------------
 
+tbl_sample_gcm <- tbl_sample
 
 # compute pairwise distances
-m_distances_x1 <- map(1:nrow(tbl_sample), distance_1d, tbl_sample, "d1i") %>% unlist() %>%
-  matrix(byrow = TRUE, nrow = nrow(tbl_sample), ncol = nrow(tbl_sample))
-m_distances_x2 <- map(1:nrow(tbl_sample), distance_1d, tbl_sample, "d2i") %>% unlist() %>%
-  matrix(byrow = TRUE, nrow = nrow(tbl_sample), ncol = nrow(tbl_sample))
+m_distances_x1 <- map(1:nrow(tbl_sample_gcm), distance_1d, tbl_sample_gcm, "d1i_z") %>% unlist() %>%
+  matrix(byrow = TRUE, nrow = nrow(tbl_sample_gcm), ncol = nrow(tbl_sample_gcm))
+m_distances_x2 <- map(1:nrow(tbl_sample_gcm), distance_1d, tbl_sample_gcm, "d2i_z") %>% unlist() %>%
+  matrix(byrow = TRUE, nrow = nrow(tbl_sample_gcm), ncol = nrow(tbl_sample_gcm))
 
 
 stan_gcm <- write_gcm_stan_file()
-mod <- cmdstan_model(stan_gcm)
+mod_gcm <- cmdstan_model(stan_gcm)
 
 l_data <- list(
-  n_stim = nrow(tbl_sample), n_trials = tbl_sample$n_trials, 
-  n_correct = tbl_sample$n_correct, n_cat = length(unique(tbl_sample$category)),
-  cat = as.numeric(factor(tbl_sample$category, labels = c(1, 2, 3))),
+  n_stim = nrow(tbl_sample_gcm), n_trials = tbl_sample_gcm$n_trials, 
+  n_correct = tbl_sample_gcm$n_correct, n_cat = length(unique(tbl_sample_gcm$category)),
+  cat = as.numeric(factor(tbl_sample_gcm$category, labels = c(1, 2, 3))),
   d1 = m_distances_x1, d2 = m_distances_x2
 )
 
 
-fit_gcm <- mod$sample(
-  data = l_data, iter_sampling = 500, iter_warmup = 1000, chains = 1
-  )
-
+fit_gcm <- mod_gcm$sample(
+  data = l_data, iter_sampling = 1000, iter_warmup = 1000, chains = 1
+)
+file_loc <- str_c("data/infpro_task-cat_beh/gcm-model-", participant_sample, ".RDS")
+fit_gcm$save_object(file = file_loc)
 pars_interest <- c("theta", "b", "c", "w")
 tbl_draws <- fit_gcm$draws(variables = pars_interest, format = "df")
-idx_params <- map(pars_interest, ~ str_starts(names(tbl_draws), .x)) %>%
-  reduce(rbind) %>% colSums()
-names_params <- names(tbl_draws)[as.logical(idx_params)]
-tbl_posterior <- tbl_draws[, c(all_of(names_params), ".chain")] %>% 
-  rename(chain = .chain) %>%
-  pivot_longer(all_of(names_params), names_to = "parameter", values_to = "value")
-kd <- rutils::estimate_kd(tbl_posterior, names_params)
-l <- sd_bfs(tbl_posterior, names_params, sqrt(2)/4)
-map(names_params, plot_posterior, tbl = tbl_posterior, tbl_thx = l[[2]])
-
-
 tbl_summary <- fit_gcm$summary(variables = pars_interest)
 names_thetas <- names(tbl_draws)[startsWith(names(tbl_draws), "theta")]
-tbl_sample$pred_theta <- colMeans(tbl_draws[, names_thetas])
+tbl_sample_gcm$pred_theta <- colMeans(tbl_draws[, names_thetas])
 
 
-ggplot(tbl_sample, aes(pred_theta, prop_correct)) +
+ggplot(tbl_sample_gcm, aes(pred_theta, prop_correct)) +
   geom_point() +
   geom_abline() +
   theme_bw() +
-  labs(x = "Predicted Theta", y = "Proportion Correct")
+  labs(x = "Predicted Theta", y = "Proportion Correct", title = "GCM")
+
+
+
+
+# Bivariate Gaussian Classification Model ---------------------------------
+# aka prototype model
+
+tbl_sample_gaussian <- tbl_sample
+
+
+stan_gaussian <- write_bivariate_gaussian_stan()
+mod_gaussian <- cmdstan_model(stan_gaussian)
+
+
+l_data <- list(
+  D = 2,
+  K = 3,
+  N = nrow(tbl_sample_gaussian),
+  n_trials = tbl_sample_gaussian$n_trials,
+  n_correct = tbl_sample_gaussian$n_correct,
+  cat = as.numeric(factor(tbl_sample_gaussian$category, labels = c(1, 2, 3))),
+  y = tbl_sample_gaussian[, c("d1i_z", "d2i_z")] %>% as.data.frame() %>% as.matrix()
+)
+fit_gaussian <- mod_gaussian$sample(
+  data = l_data, iter_sampling = 3000, iter_warmup = 3000, chains = 1
+)
+file_loc <- str_c(
+  "data/infpro_task-cat_beh/gaussian-model-", participant_sample, ".RDS"
+)
+fit_gaussian$save_object(file = file_loc)
+tbl_draws <- fit_gaussian$draws(variables = c("mu", "Sigma", "theta"), format = "df")
+tbl_summary <- fit_gaussian$summary(variables = c("mu", "Sigma", "theta"))
+names_thetas <- names(tbl_draws)[startsWith(names(tbl_draws), "theta")]
+tbl_sample_gaussian$pred_theta <- colMeans(tbl_draws[, names_thetas])
+
+
+ggplot(tbl_sample_gaussian, aes(d1i_z, d2i_z)) +
+  geom_point(aes(size = prop_correct, color = category)) +
+  theme_bw()
+
+ggplot(tbl_sample_gaussian, aes(pred_theta, prop_correct)) +
+  geom_point() +
+  geom_abline() +
+  theme_bw() +
+  labs(x = "Predicted Theta", y = "True Theta", title = "Gaussian")
+
+vars_extract <- startsWith(tbl_summary$variable, "mu") | 
+  startsWith(tbl_summary$variable, "Sigma")
+
+tbl_summary[vars_extract, ] %>%
+  arrange(variable)
