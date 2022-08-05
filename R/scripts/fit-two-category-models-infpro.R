@@ -46,6 +46,13 @@ tbl_sample <- tbl_sample %>% mutate(
 )
 
 
+ggplot(tbl_sample, aes(d1i_z, d2i_z)) +
+  geom_point(aes(size = prop_correct, color = category), show.legend = FALSE) +
+  geom_label_repel(aes(label = round(prop_correct, 2)), size = 2.5) +
+  theme_bw() +
+  labs(x = expr(x[1]), y = expr(x[2]))
+
+
 # GCM ---------------------------------------------------------------------
 
 tbl_sample_gcm <- tbl_sample
@@ -79,13 +86,7 @@ tbl_summary <- fit_gcm$summary(variables = pars_interest)
 names_thetas <- names(tbl_draws)[startsWith(names(tbl_draws), "theta")]
 tbl_sample_gcm$pred_theta <- colMeans(tbl_draws[, names_thetas])
 
-
-ggplot(tbl_sample_gcm, aes(pred_theta, prop_correct)) +
-  geom_point() +
-  geom_abline() +
-  theme_bw() +
-  labs(x = "Predicted Theta", y = "Proportion Correct", title = "GCM")
-
+plot_item_thetas(tbl_sample_gcm, "GCM")
 
 
 
@@ -93,7 +94,6 @@ ggplot(tbl_sample_gcm, aes(pred_theta, prop_correct)) +
 # aka prototype model
 
 tbl_sample_gaussian <- tbl_sample
-
 
 stan_gaussian <- write_bivariate_gaussian_stan()
 mod_gaussian <- cmdstan_model(stan_gaussian)
@@ -121,15 +121,7 @@ names_thetas <- names(tbl_draws)[startsWith(names(tbl_draws), "theta")]
 tbl_sample_gaussian$pred_theta <- colMeans(tbl_draws[, names_thetas])
 
 
-ggplot(tbl_sample_gaussian, aes(d1i_z, d2i_z)) +
-  geom_point(aes(size = prop_correct, color = category)) +
-  theme_bw()
-
-ggplot(tbl_sample_gaussian, aes(pred_theta, prop_correct)) +
-  geom_point() +
-  geom_abline() +
-  theme_bw() +
-  labs(x = "Predicted Theta", y = "True Theta", title = "Gaussian")
+plot_item_thetas(tbl_sample_gaussian, "Gaussian")
 
 vars_extract <- startsWith(tbl_summary$variable, "mu") | 
   startsWith(tbl_summary$variable, "Sigma")
