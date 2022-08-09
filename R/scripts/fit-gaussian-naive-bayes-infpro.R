@@ -27,22 +27,25 @@ tbl_train_last <- tbl_train %>% group_by(participant) %>%
 tbl_train_agg <- tbl_train %>% 
   group_by(participant, d1i, d2i, category, response) %>%
   summarize(
-    n_trials = n(), 
-    n_correct = sum(accuracy),
-    prop_correct = n_correct / n_trials
-  ) %>% ungroup()
+    n_responses = n(),
+    n_correct = sum(accuracy)
+  ) %>% group_by(participant, d1i, d2i) %>%
+  mutate(
+    n_trials = sum(n_responses), 
+    prop_responses = n_responses / n_trials) %>%
+  ungroup()
 
-participant_sample <- sample(unique(tbl_train_agg$participant), 1)
 tbl_sample <- tbl_train_agg %>% filter(participant == participant_sample)
 tbl_sample <- tbl_sample %>% mutate(
   d1i_z = scale(d1i)[, 1],
   d2i_z = scale(d2i)[, 1]
 )
 
-ggplot(tbl_sample, aes(d1i_z, d2i_z)) +
-  geom_point(aes(size = prop_correct, color = category), show.legend = FALSE) +
-  geom_label_repel(aes(label = round(prop_correct, 2)), size = 2.5) +
-  ggtitle(str_c("Participant = ", participant_sample)) +
+ggplot(tbl_sample %>% mutate(category = str_c("True Cat. = ", category)), aes(d1i_z, d2i_z)) +
+  geom_point(aes(size = prop_responses, color = category), show.legend = FALSE) +
+  geom_label_repel(aes(label = round(prop_responses, 2)), size = 2.5) +
+  #ggtitle(str_c("Participant = ", participant_sample)) +
+  facet_wrap(~ response) +
   theme_bw() +
   labs(x = expr(x[1]), y = expr(x[2]))
 
@@ -54,63 +57,209 @@ write_gaussian_naive_bayes_stan <- function() {
   write_stan_file("
 data {
  int D; //number of dimensions
- int K; //number of gaussians
+ int K; //number of categories
  int N; //number of data
- array[N] int n_trials; // number of trials per item
- array[N] int n_correct; // number of true categorization responses per item
- array[N] int cat; // true category labels
- matrix[N, D] y; //data
+ array[N, K] int n_responses; //data
+ matrix[N, D] y;
 }
 
 parameters {
  array[K] row_vector[D] mu; //category means
- array[K] row_vector[D] sigma; //variance
+ array[K,D] real <lower=0> sigma; //variance
 }
 
 transformed parameters {
-  matrix[N,K] theta;
+  array[N] vector[K] theta;
   matrix[N,K] lps1;
   matrix[N,K] lps2;
   
   for (n in 1:N){
      for (k in 1:K){
-        //increment log probability of the gaussian
-        // could this be expressed as an array of length N containing matrices of KxD?
-        lps1[n, k] = normal_lpdf(y[n,1] | mu[k,1], sigma[k,1]); 
-        lps2[n, k] = normal_lpdf(y[n,2] | mu[k,2], sigma[k,2]);
+        lps1[n, k] = normal_lpdf(y[n,1] | mu[k][1], sigma[k][1]); 
+        lps2[n, k] = normal_lpdf(y[n,2] | mu[k][2], sigma[k][2]);
      }
      for (k in 1:K){
-     theta[n,k] = (lps1[n,k] + lps2[n,k]) / (sum(lps1[n,]) + sum(lps2[n,]));
+        theta[n][k] = (exp(lps1[n,k]) + exp(lps2[n,k])) / (sum(exp(lps1[n,])) + sum(exp(lps2[n,])));
      }
   }
 }
 
 model {
-
- mu[1,1] ~ normal(-1, 1);
- mu[1,2] ~ normal(.5, 1);
- mu[2,1] ~ normal(0, 1);
- mu[2,2] ~ normal(0, 1);
- mu[3,1] ~ normal(1, 1);
- mu[3,2] ~ normal(-.5, 1);
   
  for(k in 1:K){
-   mu[k] ~ normal(0, 2);
-   sigma[k] ~ exponential(1);
+   for (d in 1:D) {
+     sigma[k][d] ~ uniform(0.1, 5);
+   }
  }
-
- n_correct ~ multinomial(theta);
-}
-
-generated quantities {
- array[K] corr_matrix[D] Sigma;
- array[N] int n_correct_predict;
+ mu[1, 1] ~ normal(-.5, .5);
+ mu[1, 2] ~ normal(.5, .5);
+ mu[2, 1] ~ normal(0, .5);
+ mu[2, 2] ~ normal(0, .5);
+ mu[3, 1] ~ normal(.5, .5);
+ mu[3, 2] ~ normal(-.5, .5);
  
- for (k in 1:K){
- Sigma[k] = multiply_lower_tri_self_transpose(L[k]);
+ for (n in 1:N){
+  n_responses[n] ~ multinomial(theta[n]);
  }
-  n_correct_predict = binomial_rng(n_trials, theta);
 }
 ")
 }
+
+tbl_sample_naive <- tbl_sample %>% 
+  select(-c(n_correct, n_trials, prop_responses)) %>%
+  pivot_wider(names_from = response, values_from = n_responses, values_fill = 0)
+
+tbl_sample_naive_1 <- tbl_sample_naive[1, ]
+
+l_data <- list(
+  D = 2, K = length(unique(tbl_sample_naive$category)),
+  N = nrow(tbl_sample_naive),
+  n_responses = tbl_sample_naive[, c("A", "B", "C")] %>% 
+    as.matrix(),
+  y = tbl_sample_naive[, c("d1i_z", "d2i_z")] %>% as.matrix()
+)
+
+stan_naive <- write_gaussian_naive_bayes_stan()
+mod_naive <- cmdstan_model(stan_naive)
+
+fit_naive <- mod_naive$sample(
+  data = l_data, iter_sampling = 5000, iter_warmup = 5000, chains = 1
+)
+
+file_loc <- str_c("data/infpro_task-cat_beh/gcm-model-", participant_sample, ".RDS")
+fit_naive$save_object(file = file_loc)
+pars_interest <- c("theta", "mu", "sigma")
+tbl_draws <- fit_naive$draws(variables = pars_interest, format = "df")
+tbl_summary <- fit_naive$summary(variables = pars_interest)
+names_thetas <- names(tbl_draws)[startsWith(names(tbl_draws), "theta")]
+tbl_sample_naive$pred_theta <- colMeans(tbl_draws[, names_thetas])
+
+plot_item_thetas(tbl_sample_naive, "GCM")
+
+tbl_posterior <- tbl_draws %>% 
+  select(starts_with("theta"), .chain) %>%
+  rename(chain = .chain) %>%
+  pivot_longer(starts_with("theta"), names_to = "parameter", values_to = "value")
+
+ggplot(tbl_posterior, aes(value)) +
+  geom_density(aes(color = parameter)) +
+  facet_wrap(~ parameter, scales = "free_y")
+
+
+
+
+
+# Gaussian Naive Bayes V2 -------------------------------------------------
+
+
+write_gaussian_naive_bayes_stan_v2 <- function() {
+  write_stan_file("
+  
+data {
+ int D; //number of dimensions
+ int K; //number of categories
+ int N; //number of data
+ array[N] int cat; //category response for a stimulus
+ matrix[N, D] y;
+}
+
+parameters {
+ array[K] row_vector[D] mu; //category means
+ array[K,D] real <lower=0> sigma; //variance
+}
+
+model {
+  
+ for(k in 1:K){
+   for (d in 1:D) {
+     sigma[k, d] ~ uniform(0.1, 5);
+     mu[k, d] ~ normal(0, 1);
+   }
+ }
+
+
+ for (n in 1:N){
+ vector[K] LL1;
+ vector[K] LL2;
+   for (k in 1:K) {
+     LL1[k] = normal_lpdf(y[n, 1] | mu[k, 1], sigma[k, 1]);
+     LL2[k] = normal_lpdf(y[n, 2] | mu[k, 2], sigma[k, 2]);
+   }
+  target += (LL1[cat[n]] - log_sum_exp(LL1)) + (LL2[cat[n]] - log_sum_exp(LL2));
+  //theta[n] = (exp(LL1[cat[n]] - log_sum_exp(LL1)) + exp(LL2[cat[n]] - log_sum_exp(LL2))) / 2;
+ }
+}
+
+")
+}
+
+
+
+
+participant_sample <- sample(unique(tbl_train_agg$participant), 1)
+tbl_train_agg <- tbl_train %>% 
+  group_by(participant, d1i, d2i, category, response) %>%
+  summarize(
+    n_responses = n(),
+    n_correct = sum(accuracy)
+  ) %>% group_by(participant, d1i, d2i) %>%
+  mutate(
+    n_trials = sum(n_responses), 
+    prop_responses = n_responses / n_trials) %>%
+  ungroup()
+tbl_sample <- tbl_train_agg %>% filter(participant == participant_sample)
+tbl_sample <- tbl_sample %>% mutate(
+  d1i_z = scale(d1i)[, 1],
+  d2i_z = scale(d2i)[, 1]
+)
+
+tbl_naive2 <- tbl_train %>% filter(participant == participant_sample) %>%
+  mutate(
+    d1i_z = scale(d1i), d2i_z = scale(d2i),
+    response_int = as.numeric(factor(response, labels = seq(1, 3, by = 1)))
+  ) %>% group_by(d1i, d2i) %>% mutate(stim_id = )
+
+l_data <- list(
+  D = 2, K = length(unique(tbl_naive2$category)),
+  N = nrow(tbl_naive2),
+  y = tbl_naive2[, c("d1i_z", "d2i_z")] %>% as.matrix(),
+  cat = tbl_naive2$response_int
+)
+
+stan_naive_v2 <- write_gaussian_naive_bayes_stan_v2()
+mod_naive_v2 <- cmdstan_model(stan_naive_v2)
+
+fit_naive_v2 <- mod_naive_v2$sample(
+  data = l_data, iter_sampling = 2000, iter_warmup = 2000, chains = 1
+)
+
+file_loc <- str_c("data/infpro_task-cat_beh/gcm-model-", participant_sample, ".RDS")
+fit_naive_v2$save_object(file = file_loc)
+pars_interest <- c("mu", "sigma", "theta")
+tbl_draws <- fit_naive_v2$draws(variables = pars_interest, format = "df")
+tbl_summary <- fit_naive_v2$summary(variables = pars_interest)
+names_thetas <- names(tbl_draws)[startsWith(names(tbl_draws), "theta")]
+tbl_sample_naive$pred_theta <- colMeans(tbl_draws[, names_thetas])
+
+plot_item_thetas(tbl_sample_naive, "GCM")
+
+tbl_posterior <- tbl_draws %>% 
+  select(starts_with(c("mu", "sigma")), .chain) %>%
+  rename(chain = .chain) %>%
+  pivot_longer(starts_with(c("mu", "sigma")), names_to = "parameter", values_to = "value")
+
+ggplot(tbl_posterior, aes(value)) +
+  geom_density(aes(color = parameter)) +
+  facet_wrap(~ parameter, scales = "free_y")
+
+
+
+
+ggplot(tbl_sample %>% mutate(category = str_c("True Cat. = ", category)), aes(d1i_z, d2i_z)) +
+  geom_point(aes(size = prop_responses, color = category), show.legend = FALSE) +
+  geom_label_repel(aes(label = round(prop_responses, 2)), size = 2.5) +
+  #ggtitle(str_c("Participant = ", participant_sample)) +
+  facet_wrap(~ response) +
+  theme_bw() +
+  labs(x = expr(x[1]), y = expr(x[2]))
 
