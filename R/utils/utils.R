@@ -182,3 +182,65 @@ gcm_response_proportions <- function(i, tbl_df, m_sims) {
 my_rbinom <- function(n_trials, prop_correct_true) {
   rbinom(n = 1, size = n_trials, prob = prop_correct_true)
 }
+
+
+write_gaussian_naive_bayes_stan_recovery <- function() {
+  write_stan_file("
+  
+data {
+ int D; //number of dimensions
+ int K; //number of categories
+ int N; //number of data
+ int n_stim; // nr of different stimuli
+ array[n_stim] int cat_true; // true category for a stimulus
+ array[N] int cat; //category response for a stimulus
+ matrix[N, D] y;
+ matrix[n_stim, D] y_unique;
+}
+
+parameters {
+ array[D] ordered[K] mu; //category means
+ array[D, K] real<lower=0> sigma; //variance
+}
+
+transformed parameters {
+ vector[n_stim] theta;
+ 
+ for (n in 1:n_stim){
+   vector[K] LL1_unique;
+   vector[K] LL2_unique;
+   for (k in 1:K) {
+     LL1_unique[k] = normal_lpdf(y_unique[n, 1] | mu[1][k], sigma[1, k]);
+     LL2_unique[k] = normal_lpdf(y_unique[n, 2] | mu[2][k], sigma[2, k]);
+   }
+   theta[n] = (exp(LL1_unique[cat_true[n]] - log_sum_exp(LL1_unique)) + 
+   exp(LL2_unique[cat_true[n]] - log_sum_exp(LL2_unique))) / 2;
+ }
+}
+
+model {
+  
+ for(k in 1:K){
+   for (d in 1:D) {
+     sigma[d, k] ~ uniform(0.1, 5);
+   }
+ }
+ mu[1][1] ~ normal(-1.5, .5);
+ mu[1][2] ~ normal(0, .5);
+ mu[1][3] ~ normal(1.5, .5);
+ mu[2][1] ~ normal(-1.5, .5);
+ mu[2][2] ~ normal(0, .5);
+ mu[2][3] ~ normal(1.5, .5);
+
+ for (n in 1:N){
+ vector[K] LL1;
+ vector[K] LL2;
+   for (k in 1:K) {
+     LL1[k] = normal_lpdf(y[n, 1] | mu[1][k], sigma[1, k]);
+     LL2[k] = normal_lpdf(y[n, 2] | mu[2][k], sigma[2, k]);
+   }
+  target += LL1[cat[n]] + LL2[cat[n]];
+ }
+}
+")
+}
