@@ -12,70 +12,6 @@ check_cmdstan_toolchain()
 # Naive Bayes -------------------------------------------------------------
 
 
-write_gaussian_naive_bayes_stan <- function() {
-  write_stan_file("
-  
-data {
- int D; //number of dimensions
- int K; //number of categories
- int N; //number of data
- int n_stim; // nr of different stimuli
- array[n_stim] int cat_true; // true category for a stimulus
- array[N] int cat; //category response for a stimulus
- matrix[N, D] y;
- matrix[n_stim, D] y_unique;
-}
-
-parameters {
- array[D] ordered[K] mu; //category means
- array[D, K] real<lower=0> sigma; //variance
-}
-
-transformed parameters {
- vector[n_stim] theta;
- 
- for (n in 1:n_stim){
-   vector[K] LL1_unique;
-   vector[K] LL2_unique;
-   for (k in 1:K) {
-     LL1_unique[k] = normal_lpdf(y_unique[n, 1] | mu[1][k], sigma[1, k]);
-     LL2_unique[k] = normal_lpdf(y_unique[n, 2] | mu[2][k], sigma[2, k]);
-   }
-   theta[n] = (exp(LL1_unique[cat_true[n]] - log_sum_exp(LL1_unique)) + 
-   exp(LL2_unique[cat_true[n]] - log_sum_exp(LL2_unique))) / 2;
- }
-}
-
-model {
-  
- for(k in 1:K){
-   for (d in 1:D) {
-     sigma[d, k] ~ uniform(0.1, 5);
-   }
- }
- mu[1][1] ~ normal(-1.5, .5);
- mu[1][2] ~ normal(0, .5);
- mu[1][3] ~ normal(1.5, .5);
- mu[2][1] ~ normal(-1.5, .5);
- mu[2][2] ~ normal(0, .5);
- mu[2][3] ~ normal(1.5, .5);
-
- for (n in 1:N){
- vector[K] LL1;
- vector[K] LL2;
-   for (k in 1:K) {
-     LL1[k] = normal_lpdf(y[n, 1] | mu[1][k], sigma[1, k]);
-     LL2[k] = normal_lpdf(y[n, 2] | mu[2][k], sigma[2, k]);
-   }
-  //target += (LL1[cat[n]] - log_sum_exp(LL1)) + (LL2[cat[n]] - log_sum_exp(LL2));
-  target += LL1[cat[n]] + LL2[cat[n]];
- }
-}
-
-")
-}
-
-
 library(MASS)
 
 m_identity <- matrix(c(1, 0, 0, 1), nrow = 2)
@@ -90,7 +26,7 @@ my_mvrnorm <- function(mu, Sigma, n) {
   return(tbl)
 }
 
-tbl_cluster <- pmap(tbl_cluster_params, my_mvrnorm, n = 100) %>%
+tbl_cluster <- pmap(tbl_cluster_params, my_mvrnorm, n = 30) %>%
   reduce(rbind) %>%
   mutate(
     x1_z = scale(x1)[, 1], x2_z = scale(x2)[, 1],
@@ -120,14 +56,14 @@ l_data <- list(
   y_unique = tbl_cluster_new[, c("x1_z", "x2_z")] %>% as.matrix()
 )
 
-stan_naive <- write_gaussian_naive_bayes_stan()
+stan_naive <- write_gaussian_naive_bayes_stan_recovery()
 mod_naive <- cmdstan_model(stan_naive)
 
 fit_naive <- mod_naive$sample(
   data = l_data, iter_sampling = 2000, iter_warmup = 2000, chains = 1
 )
 
-file_loc <- str_c("data/infpro_task-cat_beh/gcm-model-", participant_sample, ".RDS")
+file_loc <- str_c("data/infpro_task-cat_beh/recovery-naive-model-", participant_sample, ".RDS")
 fit_naive$save_object(file = file_loc)
 pars_interest <- c("mu", "sigma", "theta")
 tbl_draws <- fit_naive$draws(variables = pars_interest, format = "df")
@@ -160,4 +96,87 @@ tbl_cluster_new %>% ggplot(aes(x1_z, x2_z, group = as.factor(cond))) +
     caption = "Alpha reflects prediction uncertainty"
   )
 
+
+
+# GCM ---------------------------------------------------------------------
+
+
+# use same data as for gaussian naive bayes recovery study
+l_params_model <- list(
+  c = .5,
+  w = .5,
+  b = .5
+)
+
+l_params_simulation <- list(
+  n_trials = 10
+)
+
+l_dist_sim <- gcm_distances_similarities(tbl_cluster, l_params_model)
+tbl_cluster$prop_correct_true <- map_dbl(
+  1:nrow(tbl_cluster), 
+  gcm_response_proportions, 
+  tbl_df = tbl_cluster, 
+  m_sims = l_dist_sim[["m_similarities"]]
+)
+tbl_cluster$n_trials <- l_params_simulation[["n_trials"]]
+tbl_cluster$n_true <- pmap_int(
+  tbl_cluster[, c("n_trials", "prop_correct_true")], my_rbinom
+)
+
+
+l_data_gcm <- list(
+  n_stim = nrow(tbl_cluster),
+  n_cat = length(unique(tbl_cluster$category)),
+  n_trials = tbl_cluster$n_trials,
+  n_correct = tbl_cluster$n_true,
+  cat = tbl_cluster$category %>% as.numeric(),
+  d1 = l_dist_sim[["m_distances_x1"]],
+  d2 = l_dist_sim[["m_distances_x2"]]
+)
+
+stan_gcm <- write_gcm_stan_file()
+mod_gcm <- cmdstan_model(stan_gcm)
+
+fit_gcm <- mod_gcm$sample(
+  data = l_data_gcm, iter_sampling = 2000, iter_warmup = 2000, chains = 1
+)
+
+file_loc <- str_c("data/recovery/recovery-gcm-model.RDS")
+fit_gcm$save_object(file = file_loc)
+pars_interest <- c("c", "w", "b", "theta")
+tbl_draws <- fit_gcm$draws(variables = pars_interest, format = "df")
+tbl_summary <- fit_gcm$summary(variables = pars_interest)
+names_thetas <- names(tbl_draws)[startsWith(names(tbl_draws), "theta")]
+tbl_cluster$pred_theta <- colMeans(tbl_draws[, names_thetas])
+
+plot_item_thetas(tbl_cluster %>% mutate(prop_correct = prop_correct_true), "GCM")
+
+tbl_posterior <- tbl_draws %>% 
+  dplyr::select(starts_with(pars_interest[pars_interest != "theta"]), .chain) %>%
+  rename(chain = .chain) %>%
+  pivot_longer(
+    cols = pars_interest[pars_interest != "theta"], 
+    names_to = "parameter", values_to = "value"
+  )
+
+ggplot(tbl_posterior, aes(value)) +
+  geom_density(aes(color = parameter), show.legend = FALSE) +
+  facet_wrap(~ parameter, scales = "free_y") +
+  theme_bw() +
+  labs(x = "Parameter Value", y = "Posterior Density")
+
+
+tbl_cluster %>% grouped_agg(category, c(x1_z, x2_z)) %>%
+  mutate(
+    sd_x1_z = se_x1_z * sqrt(n),
+    sd_x2_z = se_x2_z * sqrt(n)
+  )
+
+tbl_cluster %>% ggplot(aes(x1_z, x2_z, group = as.factor(cond))) + 
+  geom_point(aes(color = as.factor(cond), alpha = pred_theta), show.legend = FALSE) +
+  theme_bw() +
+  labs(
+    caption = "Alpha reflects prediction uncertainty"
+  )
 
