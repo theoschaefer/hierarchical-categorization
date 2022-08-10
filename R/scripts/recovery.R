@@ -2,7 +2,7 @@ library(cmdstanr)
 library(rutils)
 library(tidyverse)
 
-dir_home_grown <- c("R/utils/ellipse-utils.R", "R/utils/utils.R")
+dir_home_grown <- c("R/utils/ellipse-utils.R", "R/utils/utils.R", "R/utils/plotting-utils.R")
 walk(dir_home_grown, source)
 
 check_cmdstan_toolchain(fix = TRUE, quiet = TRUE)
@@ -13,10 +13,11 @@ check_cmdstan_toolchain()
 
 
 library(MASS)
+library(mvtnorm)
 
 m_identity <- matrix(c(1, 0, 0, 1), nrow = 2)
 tbl_cluster_params <- tibble(
-  mu = list(c(-3, -3), c(0, 0), c(3, 3)),
+  mu = list(c(-2, -2), c(0, 0), c(2, 2)),
   Sigma = list(m_identity, m_identity, m_identity)
 )
 my_mvrnorm <- function(mu, Sigma, n) {
@@ -25,6 +26,11 @@ my_mvrnorm <- function(mu, Sigma, n) {
   tbl$cond <- mu[1]
   return(tbl)
 }
+
+my_mvdnorm <- function(mu, Sigma, x) {
+  dmvnorm(x, mu, Sigma)
+}
+
 
 tbl_cluster <- pmap(tbl_cluster_params, my_mvrnorm, n = 30) %>%
   reduce(rbind) %>%
@@ -42,9 +48,25 @@ tbl_cluster_new <- pmap(tbl_cluster_params, my_mvrnorm, n = 10) %>%
     category = factor(category, labels = c(1, 2, 3))
   )
 
+density_ratio_naive <- function(tbl_cluster_params, tbl_df) {
+  tbl_densities <- as_tibble(pmap(
+    tbl_cluster_params, my_mvdnorm, 
+    matrix(c(tbl_df$x1, tbl_df$x2), ncol = 2)
+  ) %>% reduce(cbind))
+  colnames(tbl_densities) <- c("dens_c1", "dens_c2", "dens_c3")
+  tbl_densities$true_category <- as.numeric(tbl_df$category)
+  apply(tbl_densities, 1, function(x) x[1:3][x[4]] / sum(x[1:3]))
+}
+
+
+
+tbl_cluster$prob_correct_true <- density_ratio_naive(tbl_cluster_params, tbl_cluster)
+tbl_cluster_new$prob_correct_true <- density_ratio_naive(tbl_cluster_params, tbl_cluster_new)
+  
 tbl_cluster %>% ggplot(aes(x1_z, x2_z, group = as.factor(cond))) + 
-  geom_point(aes(color = as.factor(cond)), show.legend = FALSE) +
-  theme_bw()
+  geom_point(aes(color = as.factor(cond), alpha = prob_correct_true), show.legend = FALSE) +
+  theme_bw() +
+  scale_color_brewer(palette = "Set1")
 
 l_data <- list(
   D = 2, K = length(unique(tbl_cluster$category)),
@@ -71,7 +93,7 @@ tbl_summary <- fit_naive$summary(variables = pars_interest)
 names_thetas <- names(tbl_draws)[startsWith(names(tbl_draws), "theta")]
 tbl_cluster_new$pred_theta <- colMeans(tbl_draws[, names_thetas])
 
-plot_item_thetas(tbl_cluster_new %>% mutate(prop_correct = 1), "Gaussian")
+plot_item_thetas(tbl_cluster_new %>% mutate(prop_correct = prob_correct_true), "Gaussian")
 
 tbl_posterior <- tbl_draws %>% 
   dplyr::select(starts_with(c("mu", "sigma")), .chain) %>%
@@ -105,7 +127,7 @@ tbl_cluster_new %>% ggplot(aes(x1_z, x2_z, group = as.factor(cond))) +
 l_params_model <- list(
   c = .5,
   w = .5,
-  b = .5
+  b = c(1/3, 1/3, 1/3) # c(.6, .2, .2) #
 )
 
 l_params_simulation <- list(
@@ -113,15 +135,16 @@ l_params_simulation <- list(
 )
 
 l_dist_sim <- gcm_distances_similarities(tbl_cluster, l_params_model)
-tbl_cluster$prop_correct_true <- map_dbl(
+tbl_cluster$prob_correct_true <- map_dbl(
   1:nrow(tbl_cluster), 
-  gcm_response_proportions, 
+  gcm_response_probabilities, 
   tbl_df = tbl_cluster, 
-  m_sims = l_dist_sim[["m_similarities"]]
+  m_sims = l_dist_sim[["m_similarities"]],
+  l_params = l_params_model
 )
 tbl_cluster$n_trials <- l_params_simulation[["n_trials"]]
 tbl_cluster$n_true <- pmap_int(
-  tbl_cluster[, c("n_trials", "prop_correct_true")], my_rbinom
+  tbl_cluster[, c("n_trials", "prob_correct_true")], my_rbinom
 )
 
 
@@ -144,21 +167,22 @@ fit_gcm <- mod_gcm$sample(
 
 file_loc <- str_c("data/recovery/recovery-gcm-model.RDS")
 fit_gcm$save_object(file = file_loc)
-pars_interest <- c("c", "w", "b", "theta")
+pars_interest <- c("c", "w", "bs", "theta")
 tbl_draws <- fit_gcm$draws(variables = pars_interest, format = "df")
 tbl_summary <- fit_gcm$summary(variables = pars_interest)
 names_thetas <- names(tbl_draws)[startsWith(names(tbl_draws), "theta")]
 tbl_cluster$pred_theta <- colMeans(tbl_draws[, names_thetas])
 
-plot_item_thetas(tbl_cluster %>% mutate(prop_correct = prop_correct_true), "GCM")
+plot_item_thetas(tbl_cluster %>% mutate(prop_correct = prob_correct_true), "GCM") +
+  coord_cartesian(ylim = c(0, 1), xlim = c(0, 1))
 
 tbl_posterior <- tbl_draws %>% 
   dplyr::select(starts_with(pars_interest[pars_interest != "theta"]), .chain) %>%
   rename(chain = .chain) %>%
   pivot_longer(
-    cols = pars_interest[pars_interest != "theta"], 
+    cols = starts_with(pars_interest[pars_interest != "theta"]), 
     names_to = "parameter", values_to = "value"
-  )
+  ) %>% filter(parameter != "chain")
 
 ggplot(tbl_posterior, aes(value)) +
   geom_density(aes(color = parameter), show.legend = FALSE) +

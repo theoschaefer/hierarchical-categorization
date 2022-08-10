@@ -32,7 +32,6 @@ data {
 parameters {
   real <lower=0> c;
   real <lower=0,upper=1> w;
-  real <lower=0,upper=1> b;
   simplex[n_cat] bs;
 }
 
@@ -58,8 +57,7 @@ model {
   n_correct ~ binomial(n_trials, theta);
   c ~ uniform(0, 5);
   w ~ beta(1, 1);
-  b ~ beta(1, 1);
-  
+
 }
 
 generated quantities {
@@ -183,8 +181,8 @@ gcm_response_probabilities <- function(i, tbl_df, m_sims, l_params) {
 }
 
 
-my_rbinom <- function(n_trials, prop_correct_true) {
-  rbinom(n = 1, size = n_trials, prob = prop_correct_true)
+my_rbinom <- function(n_trials, prob_correct_true) {
+  rbinom(n = 1, size = n_trials, prob = prob_correct_true)
 }
 
 
