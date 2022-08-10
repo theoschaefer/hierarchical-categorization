@@ -158,8 +158,8 @@ gcm_distances_similarities <- function(tbl_df, l_params) {
 
 
 
-gcm_response_proportions <- function(i, tbl_df, m_sims) {
-  #' compute gcm response proportions given pairwise similarities
+gcm_response_probabilities <- function(i, tbl_df, m_sims, l_params) {
+  #' compute gcm response probabilities given pairwise similarities
   #' 
   #' @description computes summed similarity of within category items
   #' divided by summed similarity of all items
@@ -167,15 +167,19 @@ gcm_response_proportions <- function(i, tbl_df, m_sims) {
   #' @param i idx of the row, for which to compute the response probability
   #' @param tbl_df tbl df with x1 and x2 features and category column
   #' @param m_sims nxn matrix with pairwise similarities
+  #' @param l_params list with model parameters
   #' @return dbl with response probability of being correct
   #' 
-  is_same_category <- function(i, tbl) {
-    tbl$category[i] == tbl$category
+  sum_sim_category <- function(i, tbl_df) {
+    cats_distinct <- unique(tbl_df$category)
+    l_mask <- map(cats_distinct, ~ tbl_df$category == .x)
+    map_dbl(l_mask, ~ sum(m_sims[i, ][.x]))
   }
   
-  sum_sim_same <- sum(m_sims[i, ][is_same_category(i, tbl_df)])
-  sum_sim_all <- sum(m_sims[i, ])
-  sum_sim_same / sum_sim_all
+  sum_sim_categories <- sum_sim_category(i, tbl_df)
+  sum_sim_biased <- sum_sim_categories * l_params[["b"]]
+  
+  sum_sim_biased[tbl_df$category[i]] / sum(sum_sim_biased)
 }
 
 
