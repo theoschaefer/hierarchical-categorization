@@ -71,7 +71,7 @@ generated quantities {
 }
 
 write_bivariate_gaussian_stan <- function() {
-  stan_cat_2d <- write_stan_file("
+  write_stan_file("
 data {
  int D; //number of dimensions
  int K; //number of gaussians
@@ -103,8 +103,14 @@ transformed parameters {
 
 model {
 
+ mu[1,1] ~ normal(-1, .3);
+ mu[1,2] ~ normal(.5, .3);
+ mu[2,1] ~ normal(0, .3);
+ mu[2,2] ~ normal(0, .3);
+ mu[3,1] ~ normal(1, .3);
+ mu[3,2] ~ normal(-.5, .3);
+  
  for(k in 1:K){
-   mu[k] ~ normal(0, 3);
    L[k] ~ lkj_corr_cholesky(D);
  }
 
@@ -121,4 +127,58 @@ generated quantities {
   n_correct_predict = binomial_rng(n_trials, theta);
 }
 ")
+}
+
+
+gcm_distances_similarities <- function(tbl_df, l_params) {
+  #' gcm distances and similarities for all observations
+  #' 
+  #' @description compute pairwise distances and similarities between
+  #' all observations (i.e., rows)
+  #' 
+  #' @param tbl_df tbl df with x1 and x2 features
+  #' @param l_params gcm model parameters
+  #' @return nested list with distances and similarities
+  #'   
+  # compute pairwise distances
+  m_distances_x1 <- map(1:nrow(tbl_df), distance_1d, tbl_df, "x1") %>% unlist() %>%
+    matrix(byrow = TRUE, nrow = nrow(tbl_df), ncol = nrow(tbl_df))
+  m_distances_x2 <- map(1:nrow(tbl_df), distance_1d, tbl_df, "x2") %>% unlist() %>%
+    matrix(byrow = TRUE, nrow = nrow(tbl_df), ncol = nrow(tbl_df))
+  m_similarities <- exp(-l_params[["c"]]^2*(l_params[["w"]]*m_distances_x1^2+(1-l_params[["w"]])*m_distances_x2^2))
+  
+  l_dist_sim <- list(
+    m_distances_x1 = m_distances_x1,
+    m_distances_x2 = m_distances_x2,
+    m_similarities = m_similarities
+  )
+  
+  return(l_dist_sim)
+}
+
+
+
+gcm_response_proportions <- function(i, tbl_df, m_sims) {
+  #' compute gcm response proportions given pairwise similarities
+  #' 
+  #' @description computes summed similarity of within category items
+  #' divided by summed similarity of all items
+  #' 
+  #' @param i idx of the row, for which to compute the response probability
+  #' @param tbl_df tbl df with x1 and x2 features and category column
+  #' @param m_sims nxn matrix with pairwise similarities
+  #' @return dbl with response probability of being correct
+  #' 
+  is_same_category <- function(i, tbl) {
+    tbl$category[i] == tbl$category
+  }
+  
+  sum_sim_same <- sum(m_sims[i, ][is_same_category(i, tbl_df)])
+  sum_sim_all <- sum(m_sims[i, ])
+  sum_sim_same / sum_sim_all
+}
+
+
+my_rbinom <- function(n_trials, prop_correct_true) {
+  rbinom(n = 1, size = n_trials, prob = prop_correct_true)
 }
