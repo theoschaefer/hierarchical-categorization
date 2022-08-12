@@ -30,6 +30,12 @@ my_rnorm <- function(n, mean, sd, c) {
 
 tbl_samples <- pmap(tbl_parms, my_rnorm) %>%
   reduce(rbind)
+tbl_samples_cut <- tbl_samples %>%
+  mutate(
+    y_cut = cut(samples, 30, labels = FALSE)
+  ) %>%
+  group_by(component, y_cut) %>%
+  count()
 
 ggplot(tbl_samples, aes(samples, group = component)) +
   geom_density(aes(color = component)) +
@@ -54,8 +60,8 @@ model {
   sigma ~ lognormal(0, 2);
   mu ~ normal(0, 10);
   for (n in 1:N) {
-    vector[K] lps = log_theta;
-    for (k in 1:K) {
+    vector[K]  = log_theta;
+    for (k in lps1:K) {
       lps[k] += normal_lpdf(y[n] | mu[k], sigma[k]);
     }
     target += log_sum_exp(lps);
@@ -186,21 +192,24 @@ idx_params <- map(c("mu", "Sigma", "theta"), ~ str_detect(names(tbl_draws), .x))
 names_params <- names(tbl_draws)[as.logical(idx_params)]
 tbl_posterior <- tbl_draws[, c(all_of(names_params), ".chain")] %>% 
   rename(chain = .chain) %>%
-  pivot_longer(names_params, names_to = "parameter", values_to = "value")
+  pivot_longer(all_of(names_params), names_to = "parameter", values_to = "value")
 kd <- rutils::estimate_kd(tbl_posterior, names_params)
 l <- sd_bfs(tbl_posterior, names_params, sqrt(2)/4)
 rutils::plot_posterior("L[1,2,1]", tbl_posterior, l[[2]]) + coord_cartesian(xlim = c(0, 1))
 map(names_params, plot_posterior, tbl = tbl_posterior, tbl_thx = l[[2]])
 
 
-fit$summary(variables = c("mu", "Sigma"))
+tbl_summary <- fit$summary(variables = c("mu", "Sigma", "theta"))
 
+names_thetas <- names(tbl_draws)[startsWith(names(tbl_draws), "theta")]
+tbl_thetas <- as.data.frame(matrix(colMeans(tbl_draws[, names_thetas]), ncol = 2, byrow = FALSE))
+cbind(tbl_two_ellipses, tbl_thetas) %>% arrange(n_correct)
 
 
 # Actual Model ------------------------------------------------------------
 
 
-stan_mixture_cat_2d <- write_stan_file("
+stan_cat_2d <- write_stan_file("
 data {
  int D; //number of dimensions
  int K; //number of gaussians
@@ -212,7 +221,7 @@ data {
 }
 
 parameters {
- array[K] ordered[D] mu; //mixture component means
+ array[K] row_vector[D] mu; //mixture component means
  array[K] cholesky_factor_corr[D] L; //cholesky factor of covariance
 }
 
@@ -253,15 +262,17 @@ generated quantities {
 l_data <- list(
   D = 2,
   K = 2,
-  N = nrow(tbl),
-  n_trials = tbl$n_trials,
-  n_correct = tbl$n_correct,
-  cat = as.numeric(tbl$category),
-  y = tbl[, c("x1", "x2")] %>% as.data.frame() %>% as.matrix()
+  N = nrow(tbl_two_ellipses),
+  n_trials = tbl_two_ellipses$n_trials,
+  n_correct = tbl_two_ellipses$n_correct,
+  cat = as.numeric(tbl_two_ellipses$category) - 1,
+  y = tbl_two_ellipses[, c("x1", "x2")] %>% as.data.frame() %>% as.matrix()
 )
-mod_2d_cat <- cmdstan_model(stan_mixture_cat_2d)
-fit <- mod_2d_cat$sample(data = l_data, iter_sampling = 5000, iter_warmup = 2000, chains = 1)
-tbl_draws <- fit$draws(variables = c("ps"), format = "df")
+mod_2d_cat <- cmdstan_model(stan_cat_2d)
+fit <- mod_2d_cat$sample(
+  data = l_data, iter_sampling = 2000, iter_warmup = 500, chains = 1
+  )
+tbl_draws <- fit$draws(variables = c("ps", "mu", "Sigma", "theta"), format = "df")
 idx_params <- map(c("mu", "Sigma", "theta"), ~ str_detect(names(tbl_draws), .x)) %>%
   reduce(rbind) %>% colSums()
 names_params <- names(tbl_draws)[as.logical(idx_params)]
@@ -280,3 +291,7 @@ fit$summary(variables = c("mu", "Sigma", "theta"))
 
 names_thetas <- names(tbl_draws)[startsWith(names(tbl_draws), "theta")]
 tbl$pred_theta <- colMeans(tbl_draws[, names_thetas])
+
+
+
+
