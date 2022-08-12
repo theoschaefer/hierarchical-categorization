@@ -35,6 +35,7 @@ tbl_train_agg <- tbl_train %>%
     prop_responses = n_responses / n_trials) %>%
   ungroup()
 
+participant_sample <- sample(unique(tbl_train_agg$participant), 1)
 tbl_sample <- tbl_train_agg %>% filter(participant == participant_sample)
 tbl_sample <- tbl_sample %>% mutate(
   d1i_z = scale(d1i)[, 1],
@@ -159,34 +160,56 @@ data {
  int D; //number of dimensions
  int K; //number of categories
  int N; //number of data
+ int n_stim; // nr of different stimuli
+ array[n_stim] int cat_true; // true category for a stimulus
  array[N] int cat; //category response for a stimulus
  matrix[N, D] y;
+ matrix[n_stim, D] y_unique;
 }
 
 parameters {
- array[K] row_vector[D] mu; //category means
- array[K,D] real <lower=0> sigma; //variance
+ ordered[K] mu1; //category means d1
+ ordered[K] mu2; //category means d2
+ array[D, K] real<lower=0> sigma; //variance
+}
+
+transformed parameters {
+ vector[n_stim] theta;
+ 
+ for (n in 1:n_stim){
+   vector[K] LL1_unique;
+   vector[K] LL2_unique;
+   for (k in 1:K) {
+     LL1_unique[k] = normal_lpdf(y_unique[n, 1] | mu1[k], sigma[1, k]);
+     LL2_unique[k] = normal_lpdf(y_unique[n, 2] | sort_desc(mu2)[k], sigma[2, k]);
+   }
+   theta[n] = (exp(LL1_unique[cat_true[n]] - log_sum_exp(LL1_unique)) + 
+   exp(LL2_unique[cat_true[n]] - log_sum_exp(LL2_unique))) / 2;
+ }
 }
 
 model {
   
  for(k in 1:K){
    for (d in 1:D) {
-     sigma[k, d] ~ uniform(0.1, 5);
-     mu[k, d] ~ normal(0, 1);
+     sigma[d, k] ~ uniform(0.1, 5);
    }
  }
-
+ mu1[1] ~ normal(-1.5, .5);
+ mu1[2] ~ normal(0, .5);
+ mu1[3] ~ normal(1.5, .5);
+ mu2[1] ~ normal(-1.5, .5);
+ mu2[2] ~ normal(0, .5);
+ mu2[3] ~ normal(1.5, .5);
 
  for (n in 1:N){
  vector[K] LL1;
  vector[K] LL2;
    for (k in 1:K) {
-     LL1[k] = normal_lpdf(y[n, 1] | mu[k, 1], sigma[k, 1]);
-     LL2[k] = normal_lpdf(y[n, 2] | mu[k, 2], sigma[k, 2]);
+     LL1[k] = normal_lpdf(y[n, 1] | mu1[k], sigma[1, k]);
+     LL2[k] = normal_lpdf(y[n, 2] | sort_desc(mu2)[k], sigma[2, k]);
    }
-  target += (LL1[cat[n]] - log_sum_exp(LL1)) + (LL2[cat[n]] - log_sum_exp(LL2));
-  //theta[n] = (exp(LL1[cat[n]] - log_sum_exp(LL1)) + exp(LL2[cat[n]] - log_sum_exp(LL2))) / 2;
+  target += LL1[cat[n]] + LL2[cat[n]];
  }
 }
 
@@ -194,36 +217,46 @@ model {
 }
 
 
-
-
 participant_sample <- sample(unique(tbl_train_agg$participant), 1)
-tbl_train_agg <- tbl_train %>% 
-  group_by(participant, d1i, d2i, category, response) %>%
-  summarize(
-    n_responses = n(),
-    n_correct = sum(accuracy)
-  ) %>% group_by(participant, d1i, d2i) %>%
-  mutate(
-    n_trials = sum(n_responses), 
-    prop_responses = n_responses / n_trials) %>%
-  ungroup()
-tbl_sample <- tbl_train_agg %>% filter(participant == participant_sample)
-tbl_sample <- tbl_sample %>% mutate(
-  d1i_z = scale(d1i)[, 1],
-  d2i_z = scale(d2i)[, 1]
-)
 
+# the following could be replaced by tbl_transfer to predict on t2
+# data while training on t1 data
+
+tbl_train_agg <- tbl_train %>% 
+  group_by(participant, d1i, d2i, category) %>%
+  summarize(
+    n_trials = n(),
+    n_correct = sum(accuracy),
+    prop_correct = n_correct / n_trials
+  ) %>% group_by(participant) %>% 
+  mutate(
+    d1i_z = scale(d1i)[, 1],
+    d2i_z = scale(d2i)[, 1]
+  ) %>% ungroup()
+tbl_sample <- tbl_train_agg %>% filter(participant == participant_sample)
+n_stim <- nrow(tbl_sample)
+cat_true <- recode(tbl_sample$category, "A" = 1, "B" = 3, "C" = 2)
+y_unique <- tbl_sample[, c("d1i_z", "d2i_z")] %>% as.matrix()
+
+
+# recode category if rep of true category params should be sampled
+# redode response if rep of given responses should be sampled
 tbl_naive2 <- tbl_train %>% filter(participant == participant_sample) %>%
   mutate(
     d1i_z = scale(d1i), d2i_z = scale(d2i),
-    response_int = as.numeric(factor(response, labels = seq(1, 3, by = 1)))
-  ) %>% group_by(d1i, d2i) %>% mutate(stim_id = )
+    response_int = recode(response, "A" = 1, "B" = 3, "C" = 2)
+  )
+
+
 
 l_data <- list(
   D = 2, K = length(unique(tbl_naive2$category)),
   N = nrow(tbl_naive2),
   y = tbl_naive2[, c("d1i_z", "d2i_z")] %>% as.matrix(),
-  cat = tbl_naive2$response_int
+  cat = tbl_naive2$response_int,
+  cat_true = cat_true,
+  n_stim = n_stim,
+  y_unique = y_unique
 )
 
 stan_naive_v2 <- write_gaussian_naive_bayes_stan_v2()
@@ -235,31 +268,46 @@ fit_naive_v2 <- mod_naive_v2$sample(
 
 file_loc <- str_c("data/infpro_task-cat_beh/gcm-model-", participant_sample, ".RDS")
 fit_naive_v2$save_object(file = file_loc)
-pars_interest <- c("mu", "sigma", "theta")
+pars_interest <- c("mu1", "mu2", "sigma", "theta")
 tbl_draws <- fit_naive_v2$draws(variables = pars_interest, format = "df")
 tbl_summary <- fit_naive_v2$summary(variables = pars_interest)
 names_thetas <- names(tbl_draws)[startsWith(names(tbl_draws), "theta")]
-tbl_sample_naive$pred_theta <- colMeans(tbl_draws[, names_thetas])
+tbl_sample$pred_theta <- colMeans(tbl_draws[, names_thetas])
 
-plot_item_thetas(tbl_sample_naive, "GCM")
+plot_item_thetas(tbl_sample %>% mutate(pred_theta = pred_theta), "Gaussian")
 
 tbl_posterior <- tbl_draws %>% 
-  select(starts_with(c("mu", "sigma")), .chain) %>%
+  dplyr::select(starts_with(c("mu1", "mu2", "sigma")), .chain) %>%
   rename(chain = .chain) %>%
-  pivot_longer(starts_with(c("mu", "sigma")), names_to = "parameter", values_to = "value")
+  pivot_longer(starts_with(c("mu1", "mu2", "sigma")), names_to = "parameter", values_to = "value")
 
 ggplot(tbl_posterior, aes(value)) +
   geom_density(aes(color = parameter)) +
   facet_wrap(~ parameter, scales = "free_y")
 
+tbl_sample %>% ggplot(aes(d1i_z, d2i_z, group = as.factor(category))) + 
+  geom_point(aes(color = as.factor(category), alpha = pred_theta, size = prop_correct)) +
+  theme_bw() +
+  labs(
+    caption = "Alpha reflects prediction uncertainty"
+  )
 
-
-
+n_sds <- 1
 ggplot(tbl_sample %>% mutate(category = str_c("True Cat. = ", category)), aes(d1i_z, d2i_z)) +
-  geom_point(aes(size = prop_responses, color = category), show.legend = FALSE) +
-  geom_label_repel(aes(label = round(prop_responses, 2)), size = 2.5) +
+  geom_point(aes(size = prop_correct, color = category)) +
+  # ggforce::geom_ellipse(aes(x0=-.48, y0=.37, a=n_sds*(.74), b=n_sds*(.78), angle=0)) +
+  # ggforce::geom_ellipse(aes(x0=.37, y0=-.13, a=n_sds*(.76), b=n_sds*(.72), angle=0)) +
+  # ggforce::geom_ellipse(aes(x0=-.87, y0=1.78, a=n_sds*(1.24), b=n_sds*(1.39), angle=0)) +
+  geom_label_repel(aes(label = round(prop_correct, 2)), size = 2.5) +
   #ggtitle(str_c("Participant = ", participant_sample)) +
-  facet_wrap(~ response) +
   theme_bw() +
   labs(x = expr(x[1]), y = expr(x[2]))
+
+tbl_summary %>% head(12)
+tbl_naive2 %>% grouped_agg(category, c(d1i_z, d2i_z)) %>%
+  mutate(
+    sd_d1i_z = se_d1i_z * sqrt(n),
+    sd_d2i_z = se_d2i_z * sqrt(n)
+  )
+
 
