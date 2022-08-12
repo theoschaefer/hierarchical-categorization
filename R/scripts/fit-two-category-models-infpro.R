@@ -146,37 +146,34 @@ file_loc <- str_c(
 fit_gaussian$save_object(file = file_loc)
 fit_gaussian <- readRDS(file_loc)
 
-vars_names <- c("mu1", "mu2", "sigma", "theta")
-tbl_draws <- fit_gaussian$draws(variables = vars_names, format = "df")
-tbl_summary <- fit_gaussian$summary(variables = vars_names)
+pars_interest <- c("mu1", "mu2", "sigma", "theta")
+pars_interest_no_theta <- c("mu1", "mu2", "sigma")
+tbl_draws <- fit_gaussian$draws(variables = pars_interest, format = "df")
+
 names_thetas <- names(tbl_draws)[startsWith(names(tbl_draws), "theta")]
 tbl_sample_gaussian_unique$pred_theta <- colMeans(tbl_draws[, names_thetas])
+tbl_sample_gaussian_unique$pred_difference <- tbl_sample_gaussian_unique$pred_theta - tbl_sample_gaussian_unique$prop_responses
+
+
+tbl_summary <- fit_gaussian$summary(variables = pars_interest)
+idx_no_theta <- map(pars_interest_no_theta, ~ str_detect(tbl_summary$variable, .x)) %>%
+  reduce(rbind) %>% colSums()
+tbl_label <- tbl_summary[as.logical(idx_no_theta), ]
+
+tbl_posterior <- tbl_draws %>% 
+  select(starts_with(pars_interest_no_theta), .chain) %>%
+  rename(chain = .chain) %>%
+  pivot_longer(starts_with(pars_interest_no_theta), names_to = "parameter", values_to = "value") %>%
+  filter(parameter != "chain")
+tbl_posterior$parameter <- fct_inorder(tbl_posterior$parameter)
+
 
 
 plot_item_thetas(tbl_sample_gaussian_unique, "Gaussian")
+plot_posteriors(tbl_posterior)
+plot_proportion_responses(tbl_sample_gaussian_unique, color_pred_difference = TRUE)
 
-vars_extract <- startsWith(tbl_summary$variable, "mu") | 
-  startsWith(tbl_summary$variable, "sigma")
-
-tbl_summary[vars_extract, ] %>%
-  arrange(variable)
-
-
-
-
-
-
-tbl_posterior <- tbl_draws %>% 
-  select(starts_with(vars_names), .chain) %>%
-  rename(chain = .chain) %>%
-  pivot_longer(starts_with(vars_names), names_to = "parameter", values_to = "value")
-
-ggplot(tbl_posterior, aes(value)) +
-  geom_freqpoly(aes(color = parameter)) +
-  facet_wrap(~ parameter)
-
+tbl_sample %>% group_by(response) %>% summarize(sum(n_responses))
 
 # todos
-# plot means over participants categorization data
-# fit naive bayes without variances to data
-# test whether the latter converges
+# remove naive bayes by multivariate gaussian
