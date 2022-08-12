@@ -246,3 +246,43 @@ model {
 }
 ")
 }
+
+aggregate_by_stimulus_and_response <- function(tbl_stim_id, tbl_train) {
+  #' aggregate responses by participant, stimulus id, category, and response
+  #' 
+  #' @description make sure categories not responded to are filled with 0s
+  #' 
+  #' @param tbl_stim_id tbl_df containing all training stim_id with 
+  #' associated x values and categories
+  #' @param tbl_train tbl df with all category learning training data
+  #' @return aggregated tbl df
+  #' 
+  
+  tbl_design <- tbl_stim_id %>% 
+    crossing(
+      response = unique(tbl_train$response), 
+      participant = unique(tbl_train$participant)
+    ) %>%
+    relocate(stim_id, .before = category)
+  
+  tbl_train_agg <- tbl_train_last %>% 
+    group_by(participant, stim_id, d1i, d2i, category, response) %>%
+    summarize(
+      n_responses = n()
+    )
+  
+  tbl_ <- tbl_design %>% 
+    left_join(
+      tbl_train_agg, by = c(
+        "participant", "stim_id", "d1i", "d2i", "category", "response"
+      )
+    )
+  
+  tbl_$n_responses[is.na(tbl_$n_responses)] <- 0
+  tbl_ %>% group_by(participant, d1i, d2i) %>%
+    mutate(
+      n_trials = sum(n_responses),
+      prop_responses = n_responses / n_trials
+    ) %>%
+    ungroup()
+}
