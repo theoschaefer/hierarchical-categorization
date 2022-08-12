@@ -105,5 +105,5 @@ plot_posteriors <- function(tbl_posterior) {
     data = tbl_label %>% 
       mutate(parameter = variable), 
     aes(x = mean, y = maxy, label = str_c("Mean = ", round(mean, 2)))
-  )
+  ) + labs(x = "Parameter Value", y = "Nr. Samples")
 }
