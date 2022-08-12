@@ -55,7 +55,7 @@ transformed parameters {
 
 model {
   n_correct ~ binomial(n_trials, theta);
-  c ~ uniform(0, 5);
+  c ~ uniform(0, 10);
   w ~ beta(1, 1);
 
 }
@@ -68,65 +68,68 @@ generated quantities {
 ")
 }
 
-write_bivariate_gaussian_stan <- function() {
+write_gaussian_naive_bayes_stan <- function() {
   write_stan_file("
+  
 data {
  int D; //number of dimensions
- int K; //number of gaussians
+ int K; //number of categories
  int N; //number of data
- array[N] int n_trials; // number of trials per item
- array[N] int n_correct; // number of true categorization responses per item
- array[N] int cat; // true category labels
- matrix[N, D] y; //data
+ int n_stim; // nr of different stimuli
+ array[n_stim] int cat_true; // true category for a stimulus
+ array[N] int cat; //category response for a stimulus
+ matrix[N, D] y;
+ matrix[n_stim, D] y_unique;
 }
 
 parameters {
- array[K] row_vector[D] mu; //category means
- array[K] cholesky_factor_corr[D] L; //variance
+ ordered[K] mu1; //category means d1
+ ordered[K] mu2; //category means d2
+ array[D, K] real<lower=0> sigma; //variance
 }
 
 transformed parameters {
-  vector<lower=0,upper=1>[N] theta;
-  matrix[N,K] lps;
-  
-  for (n in 1:N){
-     for (k in 1:K){
-        //increment log probability of the gaussian
-        lps[n, k] = multi_normal_cholesky_lpdf(y[n] | mu[k], L[k]); 
-     }
-     theta[n] = exp(lps[n,cat[n]] - log_sum_exp(lps[n,]));
-     //target += exp(lps[n,cat[n]] - log_sum_exp(lps[n,]));
-  }
+ vector[n_stim] theta;
+ 
+ for (n in 1:n_stim){
+   vector[K] LL1_unique;
+   vector[K] LL2_unique;
+   for (k in 1:K) {
+     LL1_unique[k] = normal_lpdf(y_unique[n, 1] | mu1[k], sigma[1, k]);
+     LL2_unique[k] = normal_lpdf(y_unique[n, 2] | sort_desc(mu2)[k], sigma[2, k]);
+   }
+   theta[n] = (exp(LL1_unique[cat_true[n]] - log_sum_exp(LL1_unique)) + 
+   exp(LL2_unique[cat_true[n]] - log_sum_exp(LL2_unique))) / 2;
+ }
 }
 
 model {
-
- mu[1,1] ~ normal(-1, .3);
- mu[1,2] ~ normal(.5, .3);
- mu[2,1] ~ normal(0, .3);
- mu[2,2] ~ normal(0, .3);
- mu[3,1] ~ normal(1, .3);
- mu[3,2] ~ normal(-.5, .3);
   
  for(k in 1:K){
-   L[k] ~ lkj_corr_cholesky(D);
+   for (d in 1:D) {
+     sigma[d, k] ~ uniform(0.1, 5);
+   }
  }
+ mu1[1] ~ normal(-1.5, .5);
+ mu1[2] ~ normal(0, .5);
+ mu1[3] ~ normal(1.5, .5);
+ mu2[1] ~ normal(-1.5, .5);
+ mu2[2] ~ normal(0, .5);
+ mu2[3] ~ normal(1.5, .5);
 
- n_correct ~ binomial(n_trials, theta);
+ for (n in 1:N){
+ vector[K] LL1;
+ vector[K] LL2;
+   for (k in 1:K) {
+     LL1[k] = normal_lpdf(y[n, 1] | mu1[k], sigma[1, k]);
+     LL2[k] = normal_lpdf(y[n, 2] | sort_desc(mu2)[k], sigma[2, k]);
+   }
+  target += LL1[cat[n]] + LL2[cat[n]];
+ }
 }
 
-generated quantities {
- array[K] corr_matrix[D] Sigma;
- array[N] int n_correct_predict;
- 
- for (k in 1:K){
- Sigma[k] = multiply_lower_tri_self_transpose(L[k]);
- }
-  n_correct_predict = binomial_rng(n_trials, theta);
-}
 ")
 }
-
 
 gcm_distances_similarities <- function(tbl_df, l_params) {
   #' gcm distances and similarities for all observations
@@ -245,4 +248,44 @@ model {
  }
 }
 ")
+}
+
+aggregate_by_stimulus_and_response <- function(tbl_stim_id, tbl_train) {
+  #' aggregate responses by participant, stimulus id, category, and response
+  #' 
+  #' @description make sure categories not responded to are filled with 0s
+  #' 
+  #' @param tbl_stim_id tbl_df containing all training stim_id with 
+  #' associated x values and categories
+  #' @param tbl_train tbl df with all category learning training data
+  #' @return aggregated tbl df
+  #' 
+  
+  tbl_design <- tbl_stim_id %>% 
+    crossing(
+      response = unique(tbl_train$response), 
+      participant = unique(tbl_train$participant)
+    ) %>%
+    relocate(stim_id, .before = category)
+  
+  tbl_train_agg <- tbl_train_last %>% 
+    group_by(participant, stim_id, d1i, d2i, d1i_z, d2i_z, category, response) %>%
+    summarize(
+      n_responses = n()
+    )
+  
+  tbl_ <- tbl_design %>% 
+    left_join(
+      tbl_train_agg, by = c(
+        "participant", "stim_id", "d1i", "d2i", "d1i_z", "d2i_z", "category", "response"
+      )
+    )
+  
+  tbl_$n_responses[is.na(tbl_$n_responses)] <- 0
+  tbl_ %>% group_by(participant, d1i, d2i) %>%
+    mutate(
+      n_trials = sum(n_responses),
+      prop_responses = n_responses / n_trials
+    ) %>%
+    ungroup()
 }
