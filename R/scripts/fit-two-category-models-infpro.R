@@ -45,15 +45,17 @@ tbl_sample <- tbl_sample %>% mutate(
   d2i_z = scale(d2i)[, 1]
 )
 
-
 ggplot(tbl_sample, aes(d1i_z, d2i_z)) +
   geom_point(aes(size = prop_correct, color = category), show.legend = FALSE) +
   geom_label_repel(aes(label = round(prop_correct, 2)), size = 2.5) +
+  ggtitle(str_c("Participant = ", participant_sample)) +
   theme_bw() +
   labs(x = expr(x[1]), y = expr(x[2]))
 
 
 # GCM ---------------------------------------------------------------------
+# aka exemplar model
+
 
 tbl_sample_gcm <- tbl_sample
 
@@ -89,7 +91,6 @@ tbl_sample_gcm$pred_theta <- colMeans(tbl_draws[, names_thetas])
 plot_item_thetas(tbl_sample_gcm, "GCM")
 
 
-
 # Bivariate Gaussian Classification Model ---------------------------------
 # aka prototype model
 
@@ -108,14 +109,18 @@ l_data <- list(
   cat = as.numeric(factor(tbl_sample_gaussian$category, labels = c(1, 2, 3))),
   y = tbl_sample_gaussian[, c("d1i_z", "d2i_z")] %>% as.data.frame() %>% as.matrix()
 )
+
 fit_gaussian <- mod_gaussian$sample(
-  data = l_data, iter_sampling = 3000, iter_warmup = 3000, chains = 1
+  data = l_data, iter_sampling = 5000, iter_warmup = 5000, chains = 1
 )
 file_loc <- str_c(
   "data/infpro_task-cat_beh/gaussian-model-", participant_sample, ".RDS"
 )
 fit_gaussian$save_object(file = file_loc)
-tbl_draws <- fit_gaussian$draws(variables = c("mu", "Sigma", "theta"), format = "df")
+fit_gaussian <- readRDS(file_loc)
+
+vars_names <- c("mu", "Sigma", "theta")
+tbl_draws <- fit_gaussian$draws(variables = vars_names, format = "df")
 tbl_summary <- fit_gaussian$summary(variables = c("mu", "Sigma", "theta"))
 names_thetas <- names(tbl_draws)[startsWith(names(tbl_draws), "theta")]
 tbl_sample_gaussian$pred_theta <- colMeans(tbl_draws[, names_thetas])
@@ -128,3 +133,23 @@ vars_extract <- startsWith(tbl_summary$variable, "mu") |
 
 tbl_summary[vars_extract, ] %>%
   arrange(variable)
+
+
+
+
+
+
+tbl_posterior <- tbl_draws %>% 
+  select(starts_with(vars_names), .chain) %>%
+  rename(chain = .chain) %>%
+  pivot_longer(starts_with(vars_names), names_to = "parameter", values_to = "value")
+
+ggplot(tbl_posterior, aes(value)) +
+  geom_freqpoly(aes(color = parameter)) +
+  facet_wrap(~ parameter)
+
+
+# todos
+# plot means over participants categorization data
+# fit naive bayes without variances to data
+# test whether the latter converges
