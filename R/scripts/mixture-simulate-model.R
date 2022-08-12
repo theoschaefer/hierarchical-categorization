@@ -53,11 +53,11 @@ tbl_cat_samples <- my_samples(n_trials, tbl_params) %>%
     samples = as.numeric(samples)
   )
 
-my_rbinom <- function(n_trials, pcat1) {
+my_rbinom1 <- function(n_trials, pcat1) {
   rbinom(1, n_trials, pcat1)
 }
 
-tbl_cat_samples$n_cat1 <- pmap_dbl(tbl_cat_samples[, c("n_trials", "pcat1")], my_rbinom)
+tbl_cat_samples$n_cat1 <- pmap_dbl(tbl_cat_samples[, c("n_trials", "pcat1")], my_rbinom1)
 tbl_cat_samples$n_cat2 <- n_trials - tbl_cat_samples$n_cat1
 
 my_select <- function(c1, c2, cat) {
@@ -233,7 +233,7 @@ tbl_cat_samples <- my_samples(
   )
 
 
-tbl_cat_samples$n_cat1 <- pmap_dbl(tbl_cat_samples[, c("n_trials", "pcat1")], my_rbinom)
+tbl_cat_samples$n_cat1 <- pmap_dbl(tbl_cat_samples[, c("n_trials", "pcat1")], my_rbinom1)
 tbl_cat_samples$n_cat2 <- n_trials - tbl_cat_samples$n_cat1
 
 tbl_cat_samples$n_correct <- pmap_dbl(
