@@ -32,7 +32,7 @@ plot_item_thetas <- function(tbl_df, title) {
   #' @param title title of the plot
   #' @return ggplot object
   #' 
-
+  
   tbl_cor <- tibble(
     cor = cor(tbl_df$prop_correct, tbl_df$pred_theta)
   )
@@ -47,7 +47,7 @@ plot_item_thetas <- function(tbl_df, title) {
 }
 
 
-plot_proportion_responses <- function(tbl_df, facet_by_response = FALSE) {
+plot_proportion_responses <- function(tbl_df, facet_by_response = FALSE, color_pred_difference = FALSE) {
   #' scatter plot of stimuli in feature space
   #' 
   #' @description filled by true category, faceted by response, 
@@ -60,14 +60,50 @@ plot_proportion_responses <- function(tbl_df, facet_by_response = FALSE) {
   #' 
   
   pl <- ggplot(tbl_df, aes(d1i_z, d2i_z)) +
-    geom_point(aes(size = prop_responses, color = category)) +
     geom_label_repel(aes(label = str_c(stim_id, "=", round(prop_responses, 2))), size = 2.5) +
     ggtitle(str_c("Participant = ", participant_sample)) +
-    scale_color_brewer(palette = "Set1", name = "True Category") +
-    scale_size_continuous(guide = "none") +
     theme_bw() +
+    scale_color_brewer(palette = "Set1", name = "True Category") +
+    scale_size_continuous(guide = "none", range = c(2, 6)) +
     labs(x = expr(x[1]), y = expr(x[2]))
+  
+  if(color_pred_difference) {
+    pl <- pl + geom_point(aes(color = pred_difference), size = 6) +
+      scale_color_gradient2(
+        name = "Prediction Difference",
+        low = "#0099FF", mid = "white", high = "#FF9999"
+        )
+  } else {
+    pl <- pl + geom_point(aes(size = prop_responses, color = category)) 
+  }
+  
   if(facet_by_response) {
     pl + facet_wrap(~ response)
   } else {pl}
+  
+}
+
+
+plot_posteriors <- function(tbl_posterior) {
+  #' histograms of posterior distributions
+  #' 
+  #' @description faceted by parameter
+  #' 
+  #' @param tbl_posterior tbl_df with samples from the posterior in long format
+  #' @return ggplot object
+  #' 
+  
+  pl <- ggplot(tbl_posterior, aes(value)) +
+    geom_histogram(bins = 30, fill = "#66CCFF", color = "white") +
+    facet_wrap(~ parameter, scales = "free") +
+    theme_bw()
+  gg_y_scales <- ggplot_build(pl)$layout$panel_scales_y
+  maxy <- map(1:length(gg_y_scales), ~ gg_y_scales[[.x]]$range$range) %>% 
+    unlist() %>% max()
+  
+  pl + geom_label(
+    data = tbl_label %>% 
+      mutate(parameter = variable), 
+    aes(x = mean, y = maxy, label = str_c("Mean = ", round(mean, 2)))
+  )
 }
