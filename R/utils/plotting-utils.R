@@ -45,3 +45,29 @@ plot_item_thetas <- function(tbl_df, title) {
     labs(x = "Predicted Theta", y = "Proportion Correct", title = title)
   
 }
+
+
+plot_proportion_responses <- function(tbl_df, facet_by_response = FALSE) {
+  #' scatter plot of stimuli in feature space
+  #' 
+  #' @description filled by true category, faceted by response, 
+  #' and sized by proportion responses
+  #' 
+  #' @param tbl_df tbl df with x vals in z space, stim_id, category, response,
+  #' and proportion responses
+  #' @param facet_by_response facets by given responses; default to FALSE
+  #' @return ggplot object
+  #' 
+  
+  pl <- ggplot(tbl_df, aes(d1i_z, d2i_z)) +
+    geom_point(aes(size = prop_responses, color = category)) +
+    geom_label_repel(aes(label = str_c(stim_id, "=", round(prop_responses, 2))), size = 2.5) +
+    ggtitle(str_c("Participant = ", participant_sample)) +
+    scale_color_brewer(palette = "Set1", name = "True Category") +
+    scale_size_continuous(guide = "none") +
+    theme_bw() +
+    labs(x = expr(x[1]), y = expr(x[2]))
+  if(facet_by_response) {
+    pl + facet_wrap(~ response)
+  } else {pl}
+}
