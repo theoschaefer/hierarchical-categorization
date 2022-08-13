@@ -31,6 +31,8 @@ my_mvdnorm <- function(mu, Sigma, x) {
   dmvnorm(x, mu, Sigma)
 }
 
+my_mvdnorm(tbl_cluster_params$mu[[1]], tbl_cluster_params$Sigma[[2]], c(0, 0))
+dnorm(0, tbl_cluster_params$mu[[1]][1], tbl_cluster_params$Sigma[[1]][1,1])^2
 
 tbl_cluster <- pmap(tbl_cluster_params, my_mvrnorm, n = 30) %>%
   reduce(rbind) %>%
@@ -40,13 +42,6 @@ tbl_cluster <- pmap(tbl_cluster_params, my_mvrnorm, n = 30) %>%
     category = factor(category, labels = c(1, 2, 3))
   )
 
-tbl_cluster_new <- pmap(tbl_cluster_params, my_mvrnorm, n = 10) %>%
-  reduce(rbind) %>%
-  mutate(
-    x1_z = scale(x1)[, 1], x2_z = scale(x2)[, 1],
-    category = fct_inseq(factor(cond)),
-    category = factor(category, labels = c(1, 2, 3))
-  )
 
 density_ratio_naive <- function(tbl_cluster_params, tbl_df) {
   tbl_densities <- as_tibble(pmap(
@@ -61,8 +56,7 @@ density_ratio_naive <- function(tbl_cluster_params, tbl_df) {
 
 
 tbl_cluster$prob_correct_true <- density_ratio_naive(tbl_cluster_params, tbl_cluster)
-tbl_cluster_new$prob_correct_true <- density_ratio_naive(tbl_cluster_params, tbl_cluster_new)
-  
+
 tbl_cluster %>% ggplot(aes(x1_z, x2_z, group = as.factor(cond))) + 
   geom_point(aes(color = as.factor(cond), alpha = prob_correct_true), show.legend = FALSE) +
   theme_bw() +
@@ -73,9 +67,9 @@ l_data <- list(
   N = nrow(tbl_cluster),
   y = tbl_cluster[, c("x1_z", "x2_z")] %>% as.matrix(),
   cat = as.numeric(tbl_cluster$category),
-  cat_true = as.numeric(tbl_cluster_new$category),
-  n_stim = nrow(tbl_cluster_new),
-  y_unique = tbl_cluster_new[, c("x1_z", "x2_z")] %>% as.matrix()
+  cat_true = as.numeric(tbl_cluster$category),
+  n_stim = nrow(tbl_cluster),
+  y_unique = tbl_cluster[, c("x1_z", "x2_z")] %>% as.matrix()
 )
 
 stan_naive <- write_gaussian_naive_bayes_stan_recovery()
@@ -91,9 +85,9 @@ pars_interest <- c("mu", "sigma", "theta")
 tbl_draws <- fit_naive$draws(variables = pars_interest, format = "df")
 tbl_summary <- fit_naive$summary(variables = pars_interest)
 names_thetas <- names(tbl_draws)[startsWith(names(tbl_draws), "theta")]
-tbl_cluster_new$pred_theta <- colMeans(tbl_draws[, names_thetas])
+tbl_cluster$pred_theta <- colMeans(tbl_draws[, names_thetas])
 
-plot_item_thetas(tbl_cluster_new %>% mutate(prop_correct = prob_correct_true), "Gaussian")
+plot_item_thetas(tbl_cluster %>% mutate(prop_correct = prob_correct_true), "Gaussian")
 
 tbl_posterior <- tbl_draws %>% 
   dplyr::select(starts_with(c("mu", "sigma")), .chain) %>%
@@ -105,19 +99,18 @@ ggplot(tbl_posterior, aes(value)) +
   facet_wrap(~ parameter, scales = "free_y")
 
 
-tbl_cluster_new %>% grouped_agg(category, c(x1_z, x2_z)) %>%
+tbl_cluster %>% grouped_agg(category, c(x1_z, x2_z)) %>%
   mutate(
     sd_x1_z = se_x1_z * sqrt(n),
     sd_x2_z = se_x2_z * sqrt(n)
   )
 
-tbl_cluster_new %>% ggplot(aes(x1_z, x2_z, group = as.factor(cond))) + 
+tbl_cluster %>% ggplot(aes(x1_z, x2_z, group = as.factor(cond))) + 
   geom_point(aes(color = as.factor(cond), alpha = pred_theta), show.legend = FALSE) +
   theme_bw() +
   labs(
     caption = "Alpha reflects prediction uncertainty"
   )
-
 
 
 # GCM ---------------------------------------------------------------------

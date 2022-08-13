@@ -218,8 +218,9 @@ transformed parameters {
      LL1_unique[k] = normal_lpdf(y_unique[n, 1] | mu[1][k], sigma[1, k]);
      LL2_unique[k] = normal_lpdf(y_unique[n, 2] | mu[2][k], sigma[2, k]);
    }
-   theta[n] = (exp(LL1_unique[cat_true[n]] - log_sum_exp(LL1_unique)) + 
-   exp(LL2_unique[cat_true[n]] - log_sum_exp(LL2_unique))) / 2;
+   theta[n] = exp(LL1_unique[cat_true[n]] + LL2_unique[cat_true[n]]) / (
+   exp(LL1_unique[1] + LL2_unique[1]) + exp(LL1_unique[2] + LL2_unique[2]) + exp(LL1_unique[3] + LL2_unique[3])
+   );
  }
 }
 

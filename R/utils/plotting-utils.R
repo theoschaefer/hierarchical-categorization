@@ -1,3 +1,5 @@
+library(ggrepel)
+
 plot_average_categorization_accuracy <- function(tbl_df, title) {
   #' scatter plot with proportion correct by x1 and x2
   #' 
