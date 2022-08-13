@@ -98,8 +98,9 @@ transformed parameters {
      LL1_unique[k] = normal_lpdf(y_unique[n, 1] | mu1[k], sigma[1, k]);
      LL2_unique[k] = normal_lpdf(y_unique[n, 2] | sort_desc(mu2)[k], sigma[2, k]);
    }
-   theta[n] = (exp(LL1_unique[cat_true[n]] - log_sum_exp(LL1_unique)) + 
-   exp(LL2_unique[cat_true[n]] - log_sum_exp(LL2_unique))) / 2;
+   theta[n] = exp(LL1_unique[cat_true[n]] + LL2_unique[cat_true[n]]) / (
+   exp(LL1_unique[1] + LL2_unique[1]) + exp(LL1_unique[2] + LL2_unique[2]) + exp(LL1_unique[3] + LL2_unique[3])
+   );
  }
 }
 
@@ -129,63 +130,6 @@ model {
 }
 
 ")
-}
-
-gcm_distances_similarities <- function(tbl_df, l_params) {
-  #' gcm distances and similarities for all observations
-  #' 
-  #' @description compute pairwise distances and similarities between
-  #' all observations (i.e., rows)
-  #' 
-  #' @param tbl_df tbl df with x1 and x2 features
-  #' @param l_params gcm model parameters
-  #' @return nested list with distances and similarities
-  #'   
-  # compute pairwise distances
-  m_distances_x1 <- map(1:nrow(tbl_df), distance_1d, tbl_df, "x1") %>% unlist() %>%
-    matrix(byrow = TRUE, nrow = nrow(tbl_df), ncol = nrow(tbl_df))
-  m_distances_x2 <- map(1:nrow(tbl_df), distance_1d, tbl_df, "x2") %>% unlist() %>%
-    matrix(byrow = TRUE, nrow = nrow(tbl_df), ncol = nrow(tbl_df))
-  m_similarities <- exp(-l_params[["c"]]^2*(l_params[["w"]]*m_distances_x1^2+(1-l_params[["w"]])*m_distances_x2^2))
-  
-  l_dist_sim <- list(
-    m_distances_x1 = m_distances_x1,
-    m_distances_x2 = m_distances_x2,
-    m_similarities = m_similarities
-  )
-  
-  return(l_dist_sim)
-}
-
-
-
-gcm_response_probabilities <- function(i, tbl_df, m_sims, l_params) {
-  #' compute gcm response probabilities given pairwise similarities
-  #' 
-  #' @description computes summed similarity of within category items
-  #' divided by summed similarity of all items
-  #' 
-  #' @param i idx of the row, for which to compute the response probability
-  #' @param tbl_df tbl df with x1 and x2 features and category column
-  #' @param m_sims nxn matrix with pairwise similarities
-  #' @param l_params list with model parameters
-  #' @return dbl with response probability of being correct
-  #' 
-  sum_sim_category <- function(i, tbl_df) {
-    cats_distinct <- unique(tbl_df$category)
-    l_mask <- map(cats_distinct, ~ tbl_df$category == .x)
-    map_dbl(l_mask, ~ sum(m_sims[i, ][.x]))
-  }
-  
-  sum_sim_categories <- sum_sim_category(i, tbl_df)
-  sum_sim_biased <- sum_sim_categories * l_params[["b"]]
-  
-  sum_sim_biased[tbl_df$category[i]] / sum(sum_sim_biased)
-}
-
-
-my_rbinom <- function(n_trials, prob_correct_true) {
-  rbinom(n = 1, size = n_trials, prob = prob_correct_true)
 }
 
 
@@ -250,6 +194,67 @@ model {
 }
 ")
 }
+
+
+gcm_distances_similarities <- function(tbl_df, l_params) {
+  #' gcm distances and similarities for all observations
+  #' 
+  #' @description compute pairwise distances and similarities between
+  #' all observations (i.e., rows)
+  #' 
+  #' @param tbl_df tbl df with x1 and x2 features
+  #' @param l_params gcm model parameters
+  #' @return nested list with distances and similarities
+  #'   
+  # compute pairwise distances
+  m_distances_x1 <- map(1:nrow(tbl_df), distance_1d, tbl_df, "x1") %>% unlist() %>%
+    matrix(byrow = TRUE, nrow = nrow(tbl_df), ncol = nrow(tbl_df))
+  m_distances_x2 <- map(1:nrow(tbl_df), distance_1d, tbl_df, "x2") %>% unlist() %>%
+    matrix(byrow = TRUE, nrow = nrow(tbl_df), ncol = nrow(tbl_df))
+  m_similarities <- exp(-l_params[["c"]]^2*(l_params[["w"]]*m_distances_x1^2+(1-l_params[["w"]])*m_distances_x2^2))
+  
+  l_dist_sim <- list(
+    m_distances_x1 = m_distances_x1,
+    m_distances_x2 = m_distances_x2,
+    m_similarities = m_similarities
+  )
+  
+  return(l_dist_sim)
+}
+
+
+
+gcm_response_probabilities <- function(i, tbl_df, m_sims, l_params) {
+  #' compute gcm response probabilities given pairwise similarities
+  #' 
+  #' @description computes summed similarity of within category items
+  #' divided by summed similarity of all items
+  #' 
+  #' @param i idx of the row, for which to compute the response probability
+  #' @param tbl_df tbl df with x1 and x2 features and category column
+  #' @param m_sims nxn matrix with pairwise similarities
+  #' @param l_params list with model parameters
+  #' @return dbl with response probability of being correct
+  #' 
+  sum_sim_category <- function(i, tbl_df) {
+    cats_distinct <- unique(tbl_df$category)
+    l_mask <- map(cats_distinct, ~ tbl_df$category == .x)
+    map_dbl(l_mask, ~ sum(m_sims[i, ][.x]))
+  }
+  
+  sum_sim_categories <- sum_sim_category(i, tbl_df)
+  sum_sim_biased <- sum_sim_categories * l_params[["b"]]
+  
+  sum_sim_biased[tbl_df$category[i]] / sum(sum_sim_biased)
+}
+
+
+my_rbinom <- function(n_trials, prob_correct_true) {
+  rbinom(n = 1, size = n_trials, prob = prob_correct_true)
+}
+
+
+
 
 aggregate_by_stimulus_and_response <- function(tbl_stim_id, tbl_train) {
   #' aggregate responses by participant, stimulus id, category, and response
