@@ -20,7 +20,7 @@ tbl_train <- tbl_train  %>%
 
 tbl_stim_id <- tbl_train %>% count(d1i, d2i, d1i_z, d2i_z, category) %>%
   arrange(d1i, d2i) %>% mutate(stim_id = seq_along(d1i + d2i)) %>%
-  select(-n)
+  dplyr::select(-n)
 tbl_train <- tbl_train %>% 
   left_join(tbl_stim_id, by = c("d1i", "d2i", "d1i_z", "d2i_z", "category"))
 
@@ -122,7 +122,7 @@ tbl_sample %>% group_by(response) %>% summarize(sum(n_responses))
 tbl_sample_gaussian <- tbl_train_last %>%
   mutate(response_int = factor(category, labels = c(1, 2, 3)))
 tbl_sample_gaussian_unique <- tbl_sample_gcm %>% 
-  select(-c(pred_theta, -pred_difference)) %>%
+  dplyr::select(-c(pred_theta, -pred_difference)) %>%
   mutate(response_int = factor(category, labels = c(1, 2, 3)))
 stan_gaussian <- write_gaussian_naive_bayes_stan()
 mod_gaussian <- cmdstan_model(stan_gaussian)
@@ -149,6 +149,7 @@ fit_gaussian <- readRDS(file_loc)
 pars_interest <- c("mu1", "mu2", "sigma", "theta")
 pars_interest_no_theta <- c("mu1", "mu2", "sigma")
 tbl_draws <- fit_gaussian$draws(variables = pars_interest, format = "df")
+tbl_draws <- tbl_draws %>% rename(`mu2[1]` = `mu2[3]`, `mu2[3]` = `mu2[1]`)
 
 names_thetas <- names(tbl_draws)[startsWith(names(tbl_draws), "theta")]
 tbl_sample_gaussian_unique$pred_theta <- colMeans(tbl_draws[, names_thetas])
@@ -156,12 +157,18 @@ tbl_sample_gaussian_unique$pred_difference <- tbl_sample_gaussian_unique$pred_th
 
 
 tbl_summary <- fit_gaussian$summary(variables = pars_interest)
+# rename to correct for reverse ordering in stan model
+old_3 <- tbl_summary$variable == "mu2[3]"
+old_1 <- tbl_summary$variable == "mu2[1]"
+tbl_summary$variable[old_3] <- "mu2[1]"
+tbl_summary$variable[old_1] <- "mu2[3]"
+
 idx_no_theta <- map(pars_interest_no_theta, ~ str_detect(tbl_summary$variable, .x)) %>%
   reduce(rbind) %>% colSums()
 tbl_label <- tbl_summary[as.logical(idx_no_theta), ]
 
 tbl_posterior <- tbl_draws %>% 
-  select(starts_with(pars_interest_no_theta), .chain) %>%
+  dplyr::select(starts_with(pars_interest_no_theta), .chain) %>%
   rename(chain = .chain) %>%
   pivot_longer(starts_with(pars_interest_no_theta), names_to = "parameter", values_to = "value") %>%
   filter(parameter != "chain")
