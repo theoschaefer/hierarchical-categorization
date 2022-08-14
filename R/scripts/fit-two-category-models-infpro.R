@@ -190,15 +190,7 @@ tbl_sample %>% group_by(response) %>% summarize(sum(n_responses))
 stan_gaussian_multi <- write_gaussian_multi_bayes_stan()
 mod_gaussian_multi <- cmdstan_model(stan_gaussian_multi)
 
-l_data <- list(
-  D = 2, K = length(unique(tbl_sample_gaussian$category)),
-  N = nrow(tbl_sample_gaussian),
-  y = tbl_sample_gaussian[, c("d1i_z", "d2i_z")] %>% as.matrix(),
-  cat = as.numeric(tbl_sample_gaussian$response_int),
-  cat_true = as.numeric(tbl_sample_gaussian_unique$response_int),
-  n_stim = nrow(tbl_sample_gaussian_unique),
-  y_unique = tbl_sample_gaussian_unique[, c("d1i_z", "d2i_z")] %>% as.matrix()
-)
+# l_data is same as for naive gaussian
 
 fit_gaussian_multi <- mod_gaussian_multi$sample(
   data = l_data, iter_sampling = 2000, iter_warmup = 2000, chains = 1
@@ -209,8 +201,8 @@ file_loc <- str_c(
 fit_gaussian_multi$save_object(file = file_loc)
 fit_gaussian_multi <- readRDS(file_loc)
 
-pars_interest <- c("mu", "L", "theta")
-pars_interest_no_theta <- c("mu", "L")
+pars_interest <- c("mu", "Sigma", "theta")
+pars_interest_no_theta <- c("mu", "Sigma")
 tbl_draws <- fit_gaussian_multi$draws(variables = pars_interest, format = "df")
 
 names_thetas <- names(tbl_draws)[startsWith(names(tbl_draws), "theta")]
@@ -237,4 +229,3 @@ plot_posteriors(tbl_posterior)
 plot_proportion_responses(tbl_sample_gaussian_unique, color_pred_difference = TRUE)
 
 tbl_sample %>% group_by(response) %>% summarize(sum(n_responses))
-
