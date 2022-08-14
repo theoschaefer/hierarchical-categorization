@@ -77,7 +77,9 @@ l_data <- list(
   n_stim = nrow(tbl_sample_gcm), n_trials = tbl_sample_gcm$n_trials, 
   n_correct = tbl_sample_gcm$n_responses, n_cat = length(unique(tbl_sample_gcm$category)),
   cat = as.numeric(factor(tbl_sample_gcm$category, labels = c(1, 2, 3))),
-  d1 = m_distances_x1, d2 = m_distances_x2
+  d1 = m_distances_x1, d2 = m_distances_x2,
+  n_correct_predict = tbl_sample_gcm$n_responses,
+  n_trials_per_item = tbl_sample_gcm$n_trials
 )
 
 fit_gcm <- mod_gcm$sample(
@@ -116,6 +118,9 @@ plot_proportion_responses(tbl_sample_gcm, color_pred_difference = TRUE)
 
 tbl_sample %>% group_by(response) %>% summarize(sum(n_responses))
 
+# loo
+fit_gcm$loo(variables = "log_lik_pred")
+
 # Bivariate Gaussian Classification Model ---------------------------------
 # aka prototype model
 
@@ -134,7 +139,9 @@ l_data <- list(
   cat = as.numeric(tbl_sample_gaussian$response_int),
   cat_true = as.numeric(tbl_sample_gaussian_unique$response_int),
   n_stim = nrow(tbl_sample_gaussian_unique),
-  y_unique = tbl_sample_gaussian_unique[, c("d1i_z", "d2i_z")] %>% as.matrix()
+  y_unique = tbl_sample_gaussian_unique[, c("d1i_z", "d2i_z")] %>% as.matrix(),
+  n_correct_predict = tbl_sample_gaussian_unique$n_responses,
+  n_trials_per_item = tbl_sample_gaussian_unique$n_trials
 )
 
 fit_gaussian <- mod_gaussian$sample(
@@ -182,6 +189,8 @@ plot_proportion_responses(tbl_sample_gaussian_unique, color_pred_difference = TR
 
 tbl_sample %>% group_by(response) %>% summarize(sum(n_responses))
 
+# loo
+fit_gaussian$loo(variables = "log_lik_pred")
 
 
 # Multivariate Gaussian ---------------------------------------------------
@@ -229,3 +238,16 @@ plot_posteriors(tbl_posterior)
 plot_proportion_responses(tbl_sample_gaussian_unique, color_pred_difference = TRUE)
 
 tbl_sample %>% group_by(response) %>% summarize(sum(n_responses))
+
+
+# loo
+fit_gaussian_multi$loo(variables = "log_lik_pred")
+
+
+# loo
+loo_gcm <- fit_gcm$loo(variables = "log_lik_pred")
+loo_gaussian <- fit_gaussian$loo(variables = "log_lik_pred")
+loo_gaussian_multi <- fit_gaussian_multi$loo(variables = "log_lik_pred")
+
+comparison <- loo_compare(loo_gcm, loo_gaussian, loo_gaussian_multi)
+print(comparison, digits = 3, simplify = FALSE)

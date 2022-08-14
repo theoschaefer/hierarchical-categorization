@@ -23,9 +23,12 @@ data {
   int n_cat;
   array[n_stim] int n_trials; // n trials
   array[n_stim] int n_correct; // n correct categorization responses
+  array[n_stim] int n_correct_predict; // n correct categorization responses on test set
+  array[n_stim] int n_trials_per_item;
   array[n_stim] int cat; // actual category for a given stimulus
   array[n_stim, n_stim] real<lower=0> d1;
   array[n_stim, n_stim] real<lower=0> d2;
+  
 }
 
 
@@ -39,6 +42,7 @@ transformed parameters {
   array[n_stim, n_stim] real <lower=0,upper=1> s;
   array[n_stim, n_cat] real <lower=0> sumsim;
   array[n_stim] real <lower=0,upper=1> theta;
+
   
   // Similarities
   for (i in 1:n_stim){
@@ -61,8 +65,11 @@ model {
 }
 
 generated quantities {
-  array[n_stim] int n_correct_predict;
-  n_correct_predict = binomial_rng(n_trials, theta);
+  array[n_stim] real log_lik_pred;
+
+  for (n in 1:n_stim) {
+  log_lik_pred[n] = binomial_lpmf(n_correct_predict[n] | n_trials_per_item[n], theta[n]);
+  }
 }
 
 ")
@@ -80,6 +87,8 @@ data {
  array[N] int cat; //category response for a stimulus
  matrix[N, D] y;
  matrix[n_stim, D] y_unique;
+ array[n_stim] int n_correct_predict; // n correct categorization responses on test set
+  array[n_stim] int n_trials_per_item;
 }
 
 parameters {
@@ -129,6 +138,15 @@ model {
  }
 }
 
+generated quantities {
+  array[n_stim] real log_lik_pred;
+
+  for (n in 1:n_stim) {
+  log_lik_pred[n] = binomial_lpmf(n_correct_predict[n] | n_trials_per_item[n], theta[n]);
+  }
+}
+
+
 ")
 }
 
@@ -145,6 +163,9 @@ data {
  array[N] int cat; //category response for a stimulus
  matrix[N, D] y;
  matrix[n_stim, D] y_unique;
+ array[n_stim] int n_correct_predict; // n correct categorization responses on test set
+ array[n_stim] int n_trials_per_item;
+  
 }
 
 parameters {
@@ -192,6 +213,16 @@ model {
   target += LL1[cat[n]] + LL2[cat[n]];
  }
 }
+
+
+generated quantities {
+  array[n_stim] real log_lik_pred;
+
+  for (n in 1:n_stim) {
+  log_lik_pred[n] = binomial_lpmf(n_correct_predict[n] | n_trials_per_item[n], theta[n]);
+  }
+}
+
 ")
 }
 
@@ -210,6 +241,8 @@ data {
  array[N] int cat; //category response for a stimulus
  matrix[N, D] y;
  matrix[n_stim, D] y_unique;
+ array[n_stim] int n_correct_predict; // n correct categorization responses on test set
+ array[n_stim] int n_trials_per_item;
 }
 
 parameters {
@@ -253,8 +286,14 @@ model {
 
 generated quantities {
  array[K] corr_matrix[D] Sigma;
+ array[n_stim] real log_lik_pred;
+ 
  for (k in 1:K){
- Sigma[k] = multiply_lower_tri_self_transpose(L[k]);
+   Sigma[k] = multiply_lower_tri_self_transpose(L[k]);
+ }
+ 
+ for (n in 1:n_stim) {
+   log_lik_pred[n] = binomial_lpmf(n_correct_predict[n] | n_trials_per_item[n], theta[n]);
  }
 }
 
