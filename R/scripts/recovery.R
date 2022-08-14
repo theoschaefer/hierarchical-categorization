@@ -31,9 +31,6 @@ my_mvdnorm <- function(mu, Sigma, x) {
   dmvnorm(x, mu, Sigma)
 }
 
-my_mvdnorm(tbl_cluster_params$mu[[1]], tbl_cluster_params$Sigma[[2]], c(0, 0))
-dnorm(0, tbl_cluster_params$mu[[1]][1], tbl_cluster_params$Sigma[[1]][1,1])^2
-
 tbl_cluster <- pmap(tbl_cluster_params, my_mvrnorm, n = 30) %>%
   reduce(rbind) %>%
   mutate(
@@ -112,6 +109,50 @@ tbl_cluster %>% ggplot(aes(x1_z, x2_z, group = as.factor(cond))) +
     caption = "Alpha reflects prediction uncertainty"
   )
 
+
+
+
+# Multivariate Gaussian ---------------------------------------------------
+
+stan_multi <- write_gaussian_multi_bayes_stan()
+mod_multi <- cmdstan_model(stan_multi)
+
+fit_multi <- mod_multi$sample(
+  data = l_data, iter_sampling = 2000, iter_warmup = 2000, chains = 1
+)
+
+file_loc <- str_c("data/infpro_task-cat_beh/recovery-gaussian-multi-model-", participant_sample, ".RDS")
+fit_multi$save_object(file = file_loc)
+pars_interest <- c("mu", "Sigma", "theta")
+tbl_draws <- fit_multi$draws(variables = pars_interest, format = "df")
+tbl_summary <- fit_multi$summary(variables = pars_interest)
+names_thetas <- names(tbl_draws)[startsWith(names(tbl_draws), "theta")]
+tbl_cluster$pred_theta <- colMeans(tbl_draws[, names_thetas])
+
+plot_item_thetas(tbl_cluster %>% mutate(prop_correct = prob_correct_true), "Multivariate Gaussian")
+
+tbl_posterior <- tbl_draws %>% 
+  dplyr::select(starts_with(c("mu", "Sigma")), .chain) %>%
+  rename(chain = .chain) %>%
+  pivot_longer(starts_with(c("mu", "Sigma")), names_to = "parameter", values_to = "value")
+
+ggplot(tbl_posterior, aes(value)) +
+  geom_density(aes(color = parameter)) +
+  facet_wrap(~ parameter, scales = "free_y")
+
+
+tbl_cluster %>% grouped_agg(category, c(x1_z, x2_z)) %>%
+  mutate(
+    sd_x1_z = se_x1_z * sqrt(n),
+    sd_x2_z = se_x2_z * sqrt(n)
+  )
+
+tbl_cluster %>% ggplot(aes(x1_z, x2_z, group = as.factor(cond))) + 
+  geom_point(aes(color = as.factor(cond), alpha = pred_theta), show.legend = FALSE) +
+  theme_bw() +
+  labs(
+    caption = "Alpha reflects prediction uncertainty"
+  )
 
 # GCM ---------------------------------------------------------------------
 

@@ -196,6 +196,72 @@ model {
 }
 
 
+
+
+write_gaussian_multi_bayes_stan <- function() {
+  write_stan_file("
+  
+data {
+ int D; //number of dimensions
+ int K; //number of categories
+ int N; //number of data
+ int n_stim; // nr of different stimuli
+ array[n_stim] int cat_true; // true category for a stimulus
+ array[N] int cat; //category response for a stimulus
+ matrix[N, D] y;
+ matrix[n_stim, D] y_unique;
+}
+
+parameters {
+ array[K] ordered[D] mu; //category means
+ array[K] cholesky_factor_corr[D] L; //cholesky factor of covariance
+ // Sqrt of variances for each variate
+ array[K] vector<lower=0>[D] L_std;
+}
+
+transformed parameters {
+ vector[n_stim] theta;
+ 
+ for (n in 1:n_stim){
+   vector[K] LL_unique;
+   for (k in 1:K) {
+     matrix[D, D] L_Sigma_unique = diag_pre_multiply(L_std[k], L[k]);
+     LL_unique[k] = multi_normal_cholesky_lpdf(y_unique[n] | mu[k], L_Sigma_unique);
+   }
+   theta[n] = exp(LL_unique[cat_true[n]] - log_sum_exp(LL_unique));
+   //theta[n] = exp(LL_unique[cat_true[n]]) / (exp(LL_unique[1]) + exp(LL_unique[2]) + exp(LL_unique[3]));
+ }
+}
+
+model {
+  
+ for(k in 1:K){
+   mu[k] ~ normal(0, 1);
+   L[k] ~ lkj_corr_cholesky(1);
+   L_std[k] ~ normal(0, 2.5);
+ }
+
+ for (n in 1:N){
+ vector[K] LL;
+ for (k in 1:K) {
+     matrix[D, D] L_Sigma = diag_pre_multiply(L_std[k], L[k]);
+     LL[k] = multi_normal_cholesky_lpdf(y[n] | mu[k], L_Sigma); 
+   }
+  target += LL[cat[n]];
+ }
+}
+
+generated quantities {
+ array[K] corr_matrix[D] Sigma;
+ for (k in 1:K){
+ Sigma[k] = multiply_lower_tri_self_transpose(L[k]);
+ }
+}
+
+")
+}
+
+
 gcm_distances_similarities <- function(tbl_df, l_params) {
   #' gcm distances and similarities for all observations
   #' 

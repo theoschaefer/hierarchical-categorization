@@ -182,5 +182,59 @@ plot_proportion_responses(tbl_sample_gaussian_unique, color_pred_difference = TR
 
 tbl_sample %>% group_by(response) %>% summarize(sum(n_responses))
 
-# todos
-# remove naive bayes by multivariate gaussian
+
+
+# Multivariate Gaussian ---------------------------------------------------
+
+
+stan_gaussian_multi <- write_gaussian_multi_bayes_stan()
+mod_gaussian_multi <- cmdstan_model(stan_gaussian_multi)
+
+l_data <- list(
+  D = 2, K = length(unique(tbl_sample_gaussian$category)),
+  N = nrow(tbl_sample_gaussian),
+  y = tbl_sample_gaussian[, c("d1i_z", "d2i_z")] %>% as.matrix(),
+  cat = as.numeric(tbl_sample_gaussian$response_int),
+  cat_true = as.numeric(tbl_sample_gaussian_unique$response_int),
+  n_stim = nrow(tbl_sample_gaussian_unique),
+  y_unique = tbl_sample_gaussian_unique[, c("d1i_z", "d2i_z")] %>% as.matrix()
+)
+
+fit_gaussian_multi <- mod_gaussian_multi$sample(
+  data = l_data, iter_sampling = 2000, iter_warmup = 2000, chains = 1
+)
+file_loc <- str_c(
+  "data/infpro_task-cat_beh/gaussian-multi-model-", participant_sample, ".RDS"
+)
+fit_gaussian_multi$save_object(file = file_loc)
+fit_gaussian_multi <- readRDS(file_loc)
+
+pars_interest <- c("mu", "L", "theta")
+pars_interest_no_theta <- c("mu", "L")
+tbl_draws <- fit_gaussian_multi$draws(variables = pars_interest, format = "df")
+
+names_thetas <- names(tbl_draws)[startsWith(names(tbl_draws), "theta")]
+tbl_sample_gaussian_unique$pred_theta <- colMeans(tbl_draws[, names_thetas])
+tbl_sample_gaussian_unique$pred_difference <- tbl_sample_gaussian_unique$pred_theta - tbl_sample_gaussian_unique$prop_responses
+
+
+tbl_summary <- fit_gaussian_multi$summary(variables = pars_interest)
+
+idx_no_theta <- map(pars_interest_no_theta, ~ str_detect(tbl_summary$variable, .x)) %>%
+  reduce(rbind) %>% colSums()
+tbl_label <- tbl_summary[as.logical(idx_no_theta), ]
+
+tbl_posterior <- tbl_draws %>% 
+  dplyr::select(starts_with(pars_interest_no_theta), .chain) %>%
+  rename(chain = .chain) %>%
+  pivot_longer(starts_with(pars_interest_no_theta), names_to = "parameter", values_to = "value") %>%
+  filter(parameter != "chain")
+tbl_posterior$parameter <- fct_inorder(tbl_posterior$parameter)
+
+
+plot_item_thetas(tbl_sample_gaussian_unique, "Gaussian")
+plot_posteriors(tbl_posterior)
+plot_proportion_responses(tbl_sample_gaussian_unique, color_pred_difference = TRUE)
+
+tbl_sample %>% group_by(response) %>% summarize(sum(n_responses))
+
