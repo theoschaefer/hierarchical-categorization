@@ -15,7 +15,7 @@ check_cmdstan_toolchain()
 library(MASS)
 library(mvtnorm)
 
-m_identity <- matrix(c(1, 0, 0, 1), nrow = 2)
+m_identity <- matrix(c(1, .3, .3, 1), nrow = 2)
 tbl_cluster_params <- tibble(
   mu = list(c(-2, -2), c(0, 0), c(2, 2)),
   Sigma = list(m_identity, m_identity, m_identity)
@@ -54,7 +54,7 @@ density_ratio_naive <- function(tbl_cluster_params, tbl_df) {
 
 tbl_cluster$prob_correct_true <- density_ratio_naive(tbl_cluster_params, tbl_cluster)
 
-tbl_cluster %>% ggplot(aes(x1_z, x2_z, group = as.factor(cond))) + 
+tbl_cluster %>% ggplot(aes(x1, x2, group = as.factor(cond))) + 
   geom_point(aes(color = as.factor(cond), alpha = prob_correct_true), show.legend = FALSE) +
   theme_bw() +
   scale_color_brewer(palette = "Set1")
@@ -62,11 +62,11 @@ tbl_cluster %>% ggplot(aes(x1_z, x2_z, group = as.factor(cond))) +
 l_data <- list(
   D = 2, K = length(unique(tbl_cluster$category)),
   N = nrow(tbl_cluster),
-  y = tbl_cluster[, c("x1_z", "x2_z")] %>% as.matrix(),
+  y = tbl_cluster[, c("x1", "x2")] %>% as.matrix(),
   cat = as.numeric(tbl_cluster$category),
   cat_true = as.numeric(tbl_cluster$category),
   n_stim = nrow(tbl_cluster),
-  y_unique = tbl_cluster[, c("x1_z", "x2_z")] %>% as.matrix()
+  y_unique = tbl_cluster[, c("x1", "x2")] %>% as.matrix()
 )
 
 stan_naive <- write_gaussian_naive_bayes_stan_recovery()
@@ -76,7 +76,7 @@ fit_naive <- mod_naive$sample(
   data = l_data, iter_sampling = 2000, iter_warmup = 2000, chains = 1
 )
 
-file_loc <- str_c("data/infpro_task-cat_beh/recovery-naive-model-", participant_sample, ".RDS")
+file_loc <- str_c("data/infpro_task-cat_beh/recovery-naive-model.RDS")
 fit_naive$save_object(file = file_loc)
 pars_interest <- c("mu", "sigma", "theta")
 tbl_draws <- fit_naive$draws(variables = pars_interest, format = "df")
@@ -95,7 +95,6 @@ ggplot(tbl_posterior, aes(value)) +
   geom_density(aes(color = parameter)) +
   facet_wrap(~ parameter, scales = "free_y")
 
-
 tbl_cluster %>% grouped_agg(category, c(x1_z, x2_z)) %>%
   mutate(
     sd_x1_z = se_x1_z * sqrt(n),
@@ -111,7 +110,6 @@ tbl_cluster %>% ggplot(aes(x1_z, x2_z, group = as.factor(cond))) +
 
 
 
-
 # Multivariate Gaussian ---------------------------------------------------
 
 stan_multi <- write_gaussian_multi_bayes_stan()
@@ -121,7 +119,7 @@ fit_multi <- mod_multi$sample(
   data = l_data, iter_sampling = 2000, iter_warmup = 2000, chains = 1
 )
 
-file_loc <- str_c("data/infpro_task-cat_beh/recovery-gaussian-multi-model-", participant_sample, ".RDS")
+file_loc <- str_c("data/infpro_task-cat_beh/recovery-gaussian-multi-model.RDS")
 fit_multi$save_object(file = file_loc)
 pars_interest <- c("mu", "Sigma", "theta")
 tbl_draws <- fit_multi$draws(variables = pars_interest, format = "df")
@@ -153,6 +151,8 @@ tbl_cluster %>% ggplot(aes(x1_z, x2_z, group = as.factor(cond))) +
   labs(
     caption = "Alpha reflects prediction uncertainty"
   )
+
+tbl_summary %>% head(12)
 
 # GCM ---------------------------------------------------------------------
 
