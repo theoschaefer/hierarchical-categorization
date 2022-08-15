@@ -3,6 +3,7 @@ library(cmdstanr)
 library(rutils)
 library(ggrepel)
 library(gridExtra)
+library(loo)
 
 utils_loc <- c("R/utils/plotting-utils.R", "R/utils/utils.R")
 walk(utils_loc, source)
@@ -41,7 +42,14 @@ pl_tf <- plot_average_categorization_accuracy(tbl_transfer, "Transfer")
 marrangeGrob(list(pl_train, pl_tf), ncol = 2, nrow = 1)
 
 tbl_train_agg <- aggregate_by_stimulus_and_response(tbl_stim_id, tbl_train)
-
+participant_sample <- "All"
+tbl_train_overall <- tbl_train_agg %>% 
+  group_by(stim_id, d1i_z, d2i_z, category, response) %>%
+  summarize(n_trials = sum(n_trials), n_responses = sum(n_responses)) %>%
+  ungroup() %>%
+  mutate(prop_responses = n_responses / n_trials) %>%
+  filter(prop_responses > .02)
+plot_proportion_responses(tbl_train_overall, facet_by_response = TRUE)
 
 participant_sample <- sample(unique(tbl_train_agg$participant), 1)
 tbl_sample <- tbl_train_agg %>% filter(participant == participant_sample)
@@ -202,7 +210,7 @@ mod_gaussian_multi <- cmdstan_model(stan_gaussian_multi)
 # l_data is same as for naive gaussian
 
 fit_gaussian_multi <- mod_gaussian_multi$sample(
-  data = l_data, iter_sampling = 2000, iter_warmup = 2000, chains = 1
+  data = l_data, iter_sampling = 5000, iter_warmup = 5000, chains = 1
 )
 file_loc <- str_c(
   "data/infpro_task-cat_beh/gaussian-multi-model-", participant_sample, ".RDS"
@@ -251,3 +259,5 @@ loo_gaussian_multi <- fit_gaussian_multi$loo(variables = "log_lik_pred")
 
 comparison <- loo_compare(loo_gcm, loo_gaussian, loo_gaussian_multi)
 print(comparison, digits = 3, simplify = FALSE)
+
+loo_model_weights(list(loo_gcm, loo_gaussian, loo_gaussian_multi), method = "stacking")
