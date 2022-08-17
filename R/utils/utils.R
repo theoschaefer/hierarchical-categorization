@@ -402,6 +402,14 @@ aggregate_by_stimulus_and_response <- function(tbl_stim_id, tbl_train) {
 }
 
 
+save_my_png <- function(pl, f_name, vals_size) {
+  #' save three plots from the categorization model
+  #'
+  png(filename = f_name, vals_size[1], vals_size[2], "in", res = 200)
+  grid.draw(pl)
+  dev.off()
+}
+
 bayesian_gcm <- function(tbl_participant, l_stan_params, mod_gcm) {
   #' fit by-participant gcm stan model
   #' 
@@ -451,7 +459,7 @@ bayesian_gcm <- function(tbl_participant, l_stan_params, mod_gcm) {
   
   
   tbl_summary <- fit_gcm$summary(variables = pars_interest)
-  tbl_summary_nok <- tbl_summary %>% filter(rhat > 1.02 | rhat < 0.98)
+  tbl_summary_nok <- tbl_summary %>% filter(rhat > 1.1 | rhat < 0.9)
   if (nrow(tbl_summary_nok) > 0) {
     stop(str_c(
       "participant = ", participant_sample, "; Rhat for some parameters not ok",
