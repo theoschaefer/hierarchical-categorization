@@ -107,8 +107,6 @@ l_gcm_results <- map(l_loo_gcm, "result")
 map(l_loo_gcm, "error") %>% reduce(c)
 
 
-
-
 # Gaussian ----------------------------------------------------------------
 
 
@@ -131,9 +129,27 @@ l_gaussian_results <- map(l_loo_gaussian, "result")
 map(l_loo_gaussian, "error") %>% reduce(c)
 
 
+# Multivariate Gaussian ---------------------------------------------------
+
+
+stan_multi <- write_gaussian_multi_bayes_stan()
+mod_multi <- cmdstan_model(stan_multi)
+safe_multi <- safely(bayesian_gaussian_multi_bayes)
+
+l_loo_multi <- furrr::future_map2(
+  l_tbl_train, l_tbl_train_agg, safe_multi, 
+  l_stan_params = l_stan_params,
+  mod_multi = mod_multi, 
+  .progress = TRUE
+)
+# ok
+l_multi_results <- map(l_loo_gaussian, "result")
+# not ok
+map(l_loo_multi, "error") %>% reduce(c)
 
 
 
+# Model Weights -----------------------------------------------------------
 
 
 

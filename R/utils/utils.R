@@ -449,6 +449,8 @@ bayesian_gcm <- function(tbl_participant, l_stan_params, mod_gcm) {
   file_loc <- str_c("data/infpro_task-cat_beh/gcm-model-", participant_sample, ".RDS")
   fit_gcm$save_object(file = file_loc)
   
+  loo_gcm <- fit_gcm$loo(variables = "log_lik_pred")
+  
   pars_interest <- c("theta", "bs", "c", "w")
   pars_interest_no_theta <- c("bs", "c", "w")
   tbl_draws <- fit_gcm$draws(variables = pars_interest, format = "df")
@@ -466,8 +468,6 @@ bayesian_gcm <- function(tbl_participant, l_stan_params, mod_gcm) {
       "model can be found under: ", file_loc
     ))
   }
-  
-  loo_gcm <- fit_gcm$loo(variables = "log_lik_pred")
   
   idx_no_theta <- map(pars_interest_no_theta, ~ str_detect(tbl_summary$variable, .x)) %>%
     reduce(rbind) %>% colSums()
@@ -495,16 +495,15 @@ bayesian_gcm <- function(tbl_participant, l_stan_params, mod_gcm) {
 }
 
 
-
 bayesian_gaussian_naive_bayes <- function(
     tbl_participant, tbl_participant_agg, l_stan_params, mod_gaussian
 ) {
-  #' fit by-participant 1D gaussian naive bayes stan model
+  #' fit by-participant 1D Gaussian naive bayes stan model
   #' 
   #' @description fit stan model, save three plots, and return loo
   #' 
   #' @param tbl_participant by-participant and by-trial responses from infpro task
-  #' @param tbl_participant_agg by-participant aggregated responses from inpro task
+  #' @param tbl_participant_agg by-participant aggregated responses from infpro task
   #' @param l_stan_params list with parameters used for stan model
   #' @param mod_gaussian the compiled cmdstanr model
   #' @return loo
@@ -535,6 +534,9 @@ bayesian_gaussian_naive_bayes <- function(
   )
   fit_gaussian$save_object(file = file_loc)
   
+  # loo
+  loo_gaussian <- fit_gaussian$loo(variables = "log_lik_pred")
+  
   pars_interest <- c("mu1", "mu2", "sigma", "theta")
   pars_interest_no_theta <- c("mu1", "mu2", "sigma")
   tbl_draws <- fit_gaussian$draws(variables = pars_interest, format = "df")
@@ -559,9 +561,6 @@ bayesian_gaussian_naive_bayes <- function(
       "model can be found under: ", file_loc
     ))
   }
-  
-  # loo
-  loo_gaussian <- fit_gaussian$loo(variables = "log_lik_pred")
   
   idx_no_theta <- map(pars_interest_no_theta, ~ str_detect(tbl_summary$variable, .x)) %>%
     reduce(rbind) %>% colSums()
@@ -589,4 +588,102 @@ bayesian_gaussian_naive_bayes <- function(
   pwalk(list(l_pl, l_pl_names, l_vals_size), save_my_png)
   
   return(loo_gaussian)
+}
+
+
+bayesian_gaussian_multi_bayes <- function(
+    tbl_participant, tbl_participant_agg, l_stan_params, mod_multi
+) {
+  #' fit by-participant multivariate 2D Gaussian stan model
+  #' 
+  #' @description fit stan model, save three plots, and return loo
+  #' 
+  #' @param tbl_participant by-participant and by-trial responses from infpro task
+  #' @param tbl_participant_agg by-participant aggregated responses from infpro task
+  #' @param l_stan_params list with parameters used for stan model
+  #' @param mod_multi the compiled cmdstanr model
+  #' @return loo
+  #'
+  
+  participant_sample <- tbl_participant$participant[1]
+  tbl_participant_agg <- tbl_participant_agg %>% 
+    filter(response == category) %>%
+    mutate(prop_correct = prop_responses)
+  
+  l_data <- list(
+    D = 2, K = length(unique(tbl_participant$category)),
+    N = nrow(tbl_participant),
+    y = tbl_participant[, c("d1i_z", "d2i_z")] %>% as.matrix(),
+    cat = tbl_participant$response_int,
+    cat_true = tbl_participant_agg$response_int,
+    n_stim = nrow(tbl_participant_agg),
+    y_unique = tbl_participant_agg[, c("d1i_z", "d2i_z")] %>% as.matrix(),
+    n_correct_predict = tbl_participant_agg$n_responses,
+    n_trials_per_item = tbl_participant_agg$n_trials
+  )
+  fit_multi <- mod_multi$sample(
+    data = l_data, chains = l_stan_params$n_chains, 
+    iter_sampling = l_stan_params$n_samples, iter_warmup = l_stan_params$n_warmup
+  )
+  file_loc <- str_c(
+    "data/infpro_task-cat_beh/multi-model-", participant_sample, ".RDS"
+  )
+  fit_multi$save_object(file = file_loc)
+  
+  # loo
+  loo_multi <- fit_multi$loo(variables = "log_lik_pred")
+  
+  
+  pars_interest <- c("mu", "Sigma", "theta")
+  tbl_draws <- fit_multi$draws(variables = pars_interest, format = "df")
+  names_params <- names(tbl_draws)
+  names_sigmas <- names_params[startsWith(names_params, "Sigma")]
+  sigmas_keep <- map(c("2,2]", "1,1]"), ~ as.integer(endsWith(names_sigmas, .x))) %>% 
+    reduce(rbind) %>% colSums()
+  names_sigmas_keep <- names_sigmas[as.logical(abs(sigmas_keep - 1))]
+  pars_interest_no_theta <- c("mu", names_sigmas_keep)
+  
+
+  names_thetas <- names(tbl_draws)[startsWith(names(tbl_draws), "theta")]
+  tbl_participant_agg$pred_theta <- colMeans(tbl_draws[, names_thetas])
+  tbl_participant_agg$pred_difference <- tbl_participant_agg$pred_theta - tbl_participant_agg$prop_responses
+  
+  
+  tbl_summary <- fit_multi$summary(variables = pars_interest)
+  tbl_summary_nok <- tbl_summary %>% filter(rhat > 1.1 | rhat < 0.9)
+  if (nrow(tbl_summary_nok) > 0) {
+    stop(str_c(
+      "participant = ", participant_sample, "; Rhat for some parameters not ok",
+      "model can be found under: ", file_loc
+    ))
+  }
+  idx_no_theta <- map(pars_interest_no_theta, ~ str_detect(tbl_summary$variable, .x)) %>%
+    reduce(rbind) %>% colSums()
+  tbl_label <- tbl_summary[as.logical(idx_no_theta), ]
+  
+  tbl_posterior <- tbl_draws %>% 
+    dplyr::select(starts_with(pars_interest_no_theta), .chain) %>%
+    rename(chain = .chain) %>%
+    pivot_longer(starts_with(pars_interest_no_theta), names_to = "parameter", values_to = "value") %>%
+    filter(parameter != "chain")
+  tbl_posterior$parameter <- fct_inorder(tbl_posterior$parameter)
+  
+  
+  pl_thetas <- plot_item_thetas(tbl_participant_agg, str_c("Multivariate Gaussian; Participant = ", participant_sample))
+  pl_posteriors <- plot_posteriors(tbl_posterior, n_cols = 6)
+  pl_pred_uncertainty <- plot_proportion_responses(tbl_participant_agg, color_pred_difference = TRUE)
+  
+
+  
+  # save plots
+  c_names <- function(x, y) str_c("data/infpro_task-cat_beh/model-plots/", x, y, ".png")
+  l_pl_names <- map(
+    c("multi-gaussian-thetas-", "multi-gaussian-posteriors-", "multi-gaussian-uncertainty-"),
+    c_names, y = participant_sample
+  )
+  l_pl <- list(pl_thetas, pl_posteriors, pl_pred_uncertainty)
+  l_vals_size <- list(c(3, 3), c(11, 5.5), c(5.5, 5.5))
+  pwalk(list(l_pl, l_pl_names, l_vals_size), save_my_png)
+  
+  return(loo_multi)
 }
