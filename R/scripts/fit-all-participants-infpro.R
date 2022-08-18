@@ -50,7 +50,7 @@ pl_train <- plot_average_categorization_accuracy(tbl_train_last, "Train")
 pl_tf <- plot_average_categorization_accuracy(tbl_transfer, "Transfer")
 marrangeGrob(list(pl_train, pl_tf), ncol = 2, nrow = 1)
 
-tbl_train_agg <- aggregate_by_stimulus_and_response(tbl_stim_id, tbl_train)
+tbl_train_agg <- aggregate_by_stimulus_and_response(tbl_stim_id, tbl_train_last)
 tbl_train_agg_overall <- tbl_train_agg %>%
   group_by(d1i, d2i, d1i_z, d2i_z, stim_id, category, response) %>%
   summarize(
@@ -67,6 +67,8 @@ plot_proportion_responses(
   facet_by_response = TRUE
 )
 
+tbl_train_last$response_int <- as.numeric(factor(tbl_train_last$response))
+tbl_train_agg$response_int <- as.numeric(factor(tbl_train_agg$response))
 
 # todos
 # three functions fitting gcm, naive gaussian classifier, and multivariate gaussian classifiers
@@ -75,7 +77,7 @@ plot_proportion_responses(
 # functions should throw an error if rhat values are above 1.05
 # functions should save a png of the main parameters
 
-l_tbl_train_agg <- split(tbl_train_agg, tbl_train_agg$participant)
+
 l_stan_params <- list(
   n_samples = 500,
   n_warmup = 500,
@@ -83,34 +85,52 @@ l_stan_params <- list(
 )
 
 
+n_workers_available <- parallel::detectCores()
+plan(multisession, workers = n_workers_available - 2)
+
 
 # GCM ---------------------------------------------------------------------
 
+
+l_tbl_train_agg <- split(tbl_train_agg, tbl_train_agg$participant)
+tbl_participant_agg <- l_tbl_train_agg[["101"]]
 
 stan_gcm <- write_gcm_stan_file()
 mod_gcm <- cmdstan_model(stan_gcm)
 safe_gcm <- safely(bayesian_gcm)
 
-n_workers_available <- parallel::detectCores()
-plan(multisession, workers = n_workers_available - 2)
+
 l_loo_gcm <- furrr::future_map(l_tbl_train_agg, safe_gcm, l_stan_params = l_stan_params, mod_gcm = mod_gcm, .progress = TRUE)
 # ok
 l_gcm_results <- map(l_loo_gcm, "result")
 # not ok
 map(l_loo_gcm, "error") %>% reduce(c)
 
-tbl_participant <- l_tbl_train_agg[[1]]
 
 
 
 # Gaussian ----------------------------------------------------------------
 
+
+l_tbl_train <- split(tbl_train_last, tbl_train_last$participant)
+tbl_participant <- l_tbl_train[["101"]]
+
 stan_gaussian <- write_gaussian_naive_bayes_stan()
 mod_gaussian <- cmdstan_model(stan_gaussian)
+safe_gaussian <- safely(bayesian_gaussian_naive_bayes)
 
-# todo
-# write functions for gaussian naive bayes and for multivariate gaussian as for gcm
-safe_gaussian <- safely()
+l_loo_gaussian <- furrr::future_map2(
+  l_tbl_train, l_tbl_train_agg, safe_gaussian, 
+  l_stan_params = l_stan_params,
+  mod_gaussian = mod_gaussian, 
+  .progress = TRUE
+  )
+# ok
+l_gaussian_results <- map(l_loo_gaussian, "result")
+# not ok
+map(l_loo_gaussian, "error") %>% reduce(c)
+
+
 
 
 
