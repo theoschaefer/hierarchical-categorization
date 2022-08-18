@@ -5,6 +5,7 @@ library(ggrepel)
 library(grid)
 library(gridExtra)
 library(furrr)
+library(loo)
 
 utils_loc <- c("R/utils/plotting-utils.R", "R/utils/utils.R")
 walk(utils_loc, source)
@@ -79,8 +80,8 @@ tbl_train_agg$response_int <- as.numeric(factor(tbl_train_agg$response))
 
 
 l_stan_params <- list(
-  n_samples = 500,
-  n_warmup = 500,
+  n_samples = 10000,
+  n_warmup = 5000,
   n_chains = 1
 )
 
@@ -122,7 +123,7 @@ l_loo_gaussian <- furrr::future_map2(
   l_stan_params = l_stan_params,
   mod_gaussian = mod_gaussian, 
   .progress = TRUE
-  )
+)
 # ok
 l_gaussian_results <- map(l_loo_gaussian, "result")
 # not ok
@@ -143,7 +144,7 @@ l_loo_multi <- furrr::future_map2(
   .progress = TRUE
 )
 # ok
-l_multi_results <- map(l_loo_gaussian, "result")
+l_multi_results <- map(l_loo_multi, "result")
 # not ok
 map(l_loo_multi, "error") %>% reduce(c)
 
@@ -151,5 +152,21 @@ map(l_loo_multi, "error") %>% reduce(c)
 
 # Model Weights -----------------------------------------------------------
 
+safe_weights <- safely(loo_model_weights)
 
-
+l_loo_weights <- pmap(
+  list(l_gcm_results, l_gaussian_results), #, l_multi_results 
+  ~ safe_weights(list(..1, ..2)), #, , ..3
+  method = "stacking"
+)
+l_loo_weights_results <- map(l_loo_weights, ~ .x$"result"[2])
+v_weights <- l_loo_weights_results[map_lgl(l_loo_weights_results, ~ !is.null(.x))] %>% unlist()
+participants <- str_match(names(v_weights), "^([0-9]*).model2")[,2]
+tbl_weights <- tibble(
+  participant = participants,
+  weight_prototype = v_weights
+)
+ggplot(tbl_weights, aes(weight_prototype)) + 
+  geom_histogram(fill = "#66CCFF", color = "white") +
+  theme_bw() +
+  labs(x = "Model Weight Prototype Model", y = "Nr. Participants")
