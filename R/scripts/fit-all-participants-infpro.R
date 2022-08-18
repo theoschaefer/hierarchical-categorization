@@ -71,17 +71,10 @@ plot_proportion_responses(
 tbl_train_last$response_int <- as.numeric(factor(tbl_train_last$response))
 tbl_train_agg$response_int <- as.numeric(factor(tbl_train_agg$response))
 
-# todos
-# three functions fitting gcm, naive gaussian classifier, and multivariate gaussian classifiers
-# all of them should take the same arguments: by-participant tbl_df, l_stan_params (i.e., n samples etc.), 
-# safely map over participant_ids
-# functions should throw an error if rhat values are above 1.05
-# functions should save a png of the main parameters
-
 
 l_stan_params <- list(
-  n_samples = 10000,
-  n_warmup = 5000,
+  n_samples = 1000,
+  n_warmup = 1000,
   n_chains = 1
 )
 
@@ -101,7 +94,12 @@ mod_gcm <- cmdstan_model(stan_gcm)
 safe_gcm <- safely(bayesian_gcm)
 
 
-l_loo_gcm <- furrr::future_map(l_tbl_train_agg, safe_gcm, l_stan_params = l_stan_params, mod_gcm = mod_gcm, .progress = TRUE)
+l_loo_gcm <- furrr::future_map(
+  l_tbl_train_agg, safe_gcm, 
+  l_stan_params = l_stan_params, 
+  mod_gcm = mod_gcm, 
+  .progress = TRUE)
+saveRDS(l_loo_gcm, file = "data/infpro_task-cat_beh/gcm-loos.RDS")
 # ok
 l_gcm_results <- map(l_loo_gcm, "result")
 # not ok
@@ -124,6 +122,8 @@ l_loo_gaussian <- furrr::future_map2(
   mod_gaussian = mod_gaussian, 
   .progress = TRUE
 )
+saveRDS(l_loo_gaussian, file = "data/infpro_task-cat_beh/gaussian-loos.RDS")
+
 # ok
 l_gaussian_results <- map(l_loo_gaussian, "result")
 # not ok
@@ -143,6 +143,8 @@ l_loo_multi <- furrr::future_map2(
   mod_multi = mod_multi, 
   .progress = TRUE
 )
+saveRDS(l_loo_multi, file = "data/infpro_task-cat_beh/multi-loos.RDS")
+
 # ok
 l_multi_results <- map(l_loo_multi, "result")
 # not ok
@@ -160,7 +162,8 @@ l_loo_weights <- pmap(
   method = "stacking"
 )
 l_loo_weights_results <- map(l_loo_weights, ~ .x$"result"[2])
-v_weights <- l_loo_weights_results[map_lgl(l_loo_weights_results, ~ !is.null(.x))] %>% unlist()
+v_weights <- l_loo_weights_results[map_lgl(l_loo_weights_results, ~ !is.null(.x))] %>% 
+  unlist()
 participants <- str_match(names(v_weights), "^([0-9]*).model2")[,2]
 tbl_weights <- tibble(
   participant = participants,

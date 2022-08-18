@@ -464,8 +464,8 @@ bayesian_gcm <- function(tbl_participant, l_stan_params, mod_gcm) {
   tbl_summary_nok <- tbl_summary %>% filter(rhat > 1.1 | rhat < 0.9)
   if (nrow(tbl_summary_nok) > 0) {
     stop(str_c(
-      "participant = ", participant_sample, "; Rhat for some parameters not ok",
-      "model can be found under: ", file_loc
+      "participant = ", participant_sample, "; Rhat for some parameters not ok; ",
+      "model can be found under: ", 
     ))
   }
   
