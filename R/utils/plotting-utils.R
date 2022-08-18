@@ -86,7 +86,7 @@ plot_proportion_responses <- function(tbl_df, facet_by_response = FALSE, color_p
 }
 
 
-plot_posteriors <- function(tbl_posterior) {
+plot_posteriors <- function(tbl_posterior, n_cols = 4) {
   #' histograms of posterior distributions
   #' 
   #' @description faceted by parameter
@@ -97,7 +97,7 @@ plot_posteriors <- function(tbl_posterior) {
   
   pl <- ggplot(tbl_posterior, aes(value)) +
     geom_histogram(bins = 30, fill = "#66CCFF", color = "white") +
-    facet_wrap(~ parameter, scales = "free") +
+    facet_wrap(~ parameter, scales = "free", ncol = n_cols) +
     theme_bw()
   gg_y_scales <- ggplot_build(pl)$layout$panel_scales_y
   maxy <- map(1:length(gg_y_scales), ~ gg_y_scales[[.x]]$range$range) %>% 
