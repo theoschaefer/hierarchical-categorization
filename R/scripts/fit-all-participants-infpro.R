@@ -26,7 +26,9 @@ tbl_both <- tbl_train  %>%
   rbind(tbl_transfer) %>%
   mutate(
     d1i_z = scale(d1i)[, 1],
-    d2i_z = scale(d2i)[, 1]
+    d2i_z = scale(d2i)[, 1],
+    response_int = as.numeric(factor(response))
+    
   )
 tbl_train <- tbl_both %>% filter(session == "train")
 tbl_transfer <- tbl_both %>% filter(session == "transfer")
@@ -52,9 +54,10 @@ tbl_train_last <- tbl_train %>% group_by(participant) %>%
     rwn_fwd = row_number(block),
     rwn_bkwd = row_number(desc(rwn_fwd))
   ) %>% ungroup() %>%
-  filter(rwn_bkwd <= n_last_trials)
+  filter(rwn_bkwd <= n_last_trials) %>%
+  dplyr::select(-c(rwn_fwd, rwn_bkwd))
 
-
+tbl_both <- rbind(tbl_train_last, tbl_transfer)
 
 # Plot Overall Proportion Responses By Stimulus and Category --------------
 
@@ -81,14 +84,14 @@ plot_proportion_responses(
   facet_by_response = TRUE
 )
 
-tbl_train_last$response_int <- as.numeric(factor(tbl_train_last$response))
-tbl_train_agg$response_int <- as.numeric(factor(tbl_train_agg$response))
-tbl_transfer_agg$response_int <- as.numeric(factor(tbl_transfer_agg$response))
+# tbl_train_last$response_int <- as.numeric(factor(tbl_train_last$response))
+# tbl_train_agg$response_int <- as.numeric(factor(tbl_train_agg$response))
+# tbl_transfer_agg$response_int <- as.numeric(factor(tbl_transfer_agg$response))
 
 
 l_stan_params <- list(
-  n_samples = 500,
-  n_warmup = 500,
+  n_samples = 100,
+  n_warmup = 200,
   n_chains = 1
 )
 
@@ -103,7 +106,7 @@ plan(multisession, workers = 2)
 tbl_both_agg <- rbind(tbl_train_agg, tbl_transfer_agg)
 
 l_tbl_both_agg <- split(tbl_both_agg, tbl_both_agg$participant)
-tbl_participant_agg <- l_tbl_train_agg[["101"]]
+tbl_participant <- l_tbl_both_agg[["101"]]
 
 stan_gcm <- write_gcm_stan_file_predict()
 mod_gcm <- cmdstan_model(stan_gcm)
@@ -126,15 +129,16 @@ map(l_loo_gcm, "error") %>% reduce(c)
 # Gaussian ----------------------------------------------------------------
 
 
-l_tbl_train <- split(tbl_train_last, tbl_train_last$participant)
-tbl_participant <- l_tbl_train[["101"]]
+l_tbl_both <- split(tbl_both, tbl_both$participant)
+tbl_participant <- l_tbl_both[["101"]]
+tbl_participant_agg <- l_tbl_both_agg[["101"]]
 
 stan_gaussian <- write_gaussian_naive_bayes_stan()
 mod_gaussian <- cmdstan_model(stan_gaussian)
 safe_gaussian <- safely(bayesian_gaussian_naive_bayes)
 
 l_loo_gaussian <- furrr::future_map2(
-  l_tbl_train, l_tbl_train_agg, safe_gaussian, 
+  l_tbl_both, l_tbl_both_agg, safe_gaussian, 
   l_stan_params = l_stan_params,
   mod_gaussian = mod_gaussian, 
   .progress = TRUE
@@ -155,7 +159,7 @@ mod_multi <- cmdstan_model(stan_multi)
 safe_multi <- safely(bayesian_gaussian_multi_bayes)
 
 l_loo_multi <- furrr::future_map2(
-  l_tbl_train, l_tbl_train_agg, safe_multi, 
+  l_tbl_both, l_tbl_both_agg, safe_multi, 
   l_stan_params = l_stan_params,
   mod_multi = mod_multi, 
   .progress = TRUE
