@@ -34,7 +34,7 @@ data {
 
 parameters {
   real <lower=0> c;
-  real <lower=0,upper=1> w;
+  //real <lower=0,upper=1> w;
   simplex[n_cat] bs;
 }
 
@@ -50,7 +50,8 @@ transformed parameters {
       sumsim[i, k] = 0;
     }
     for (j in 1:n_stim){
-      s[i, j] = exp(-square(c)*(w*square(d1[i, j])+(1-w)*square(d2[i, j])));
+      //s[i, j] = exp(-square(c)*(w*square(d1[i, j])+(1-w)*square(d2[i, j])));
+      s[i, j] = exp(-square(c)*(.5*square(d1[i, j])+(.5)*square(d2[i, j])));
       sumsim[i, cat[j]] = sumsim[i, cat[j]] + s[i,j] * bs[cat[j]];
     }
     theta[i] = sumsim[i, cat[i]] / sum(sumsim[i, ]);
@@ -60,7 +61,7 @@ transformed parameters {
 model {
   n_correct ~ binomial(n_trials, theta);
   c ~ uniform(0, 10);
-  w ~ beta(1, 1);
+  //w ~ beta(1, 1);
 
 }
 
@@ -70,6 +71,87 @@ generated quantities {
   for (n in 1:n_stim) {
   log_lik_pred[n] = binomial_lpmf(n_correct_predict[n] | n_trials_per_item[n], theta[n]);
   }
+}
+
+")
+}
+
+
+write_gcm_stan_file_predict <- function() {
+  write_stan_file("
+data {
+  int n_stim;
+  int n_cat;
+  array[n_stim] int n_trials; // n trials
+  array[n_stim] int n_correct; // n correct categorization responses
+  array[n_stim] int cat; // actual category for a given stimulus
+  array[n_stim, n_stim] real<lower=0> d1;
+  array[n_stim, n_stim] real<lower=0> d2;
+  
+  int n_stim_predict;
+  array[n_stim_predict] int n_trials_predict; // n trials on test set
+  array[n_stim_predict] int n_correct_predict; // n correct categorization responses on test set
+  array[n_stim_predict] int cat_predict; // actual category for a given stimulus
+  array[n_stim_predict, n_stim_predict] real<lower=0> d1_predict;
+  array[n_stim_predict, n_stim_predict] real<lower=0> d2_predict;
+  
+}
+
+
+parameters {
+  real <lower=0> c;
+  //real <lower=0,upper=1> w;
+  simplex[n_cat] bs;
+}
+
+transformed parameters {
+  array[n_stim, n_stim] real <lower=0,upper=1> s;
+  array[n_stim, n_cat] real <lower=0> sumsim;
+  array[n_stim] real <lower=0,upper=1> theta;
+
+  
+  // Similarities
+  for (i in 1:n_stim){
+    for (k in 1:n_cat) {
+      sumsim[i, k] = 0;
+    }
+    for (j in 1:n_stim){
+      //s[i, j] = exp(-square(c)*(w*square(d1[i, j])+(1-w)*square(d2[i, j])));
+      s[i, j] = exp(-square(c)*(.5*square(d1[i, j])+(.5)*square(d2[i, j])));
+      sumsim[i, cat[j]] = sumsim[i, cat[j]] + s[i,j] * bs[cat[j]];
+    }
+    theta[i] = sumsim[i, cat[i]] / sum(sumsim[i, ]);
+  }
+}
+
+model {
+  n_correct ~ binomial(n_trials, theta);
+  c ~ uniform(0, 10);
+  //w ~ beta(1, 1);
+
+}
+
+generated quantities {
+  array[n_stim_predict] real log_lik_pred;
+  array[n_stim_predict, n_stim_predict] real <lower=0,upper=1> s_predict;
+  array[n_stim_predict, n_cat] real <lower=0> sumsim_predict;
+  array[n_stim_predict] real <lower=0,upper=1> theta_predict;
+
+
+  // Similarities
+  for (i in 1:n_stim_predict){
+    for (k in 1:n_cat) {
+      sumsim_predict[i, k] = 0;
+    }
+    for (j in 1:n_stim_predict){
+      //s_predict[i, j] = exp(-square(c)*(w*square(d1_predict[i, j])+(1-w)*square(d2_predict[i, j])));
+      s_predict[i, j] = exp(-square(c)*(.5*square(d1_predict[i, j])+(.5)*square(d2_predict[i, j])));
+      sumsim_predict[i, cat_predict[j]] = sumsim_predict[i, cat_predict[j]] + s_predict[i,j] * bs[cat_predict[j]];
+    }
+    theta_predict[i] = sumsim_predict[i, cat_predict[i]] / sum(sumsim_predict[i, ]);
+    log_lik_pred[i] = binomial_lpmf(n_correct_predict[i] | n_trials_predict[i], theta_predict[i]);
+  }
+
 }
 
 ")
@@ -361,26 +443,27 @@ my_rbinom <- function(n_trials, prob_correct_true) {
 
 
 
-aggregate_by_stimulus_and_response <- function(tbl_stim_id, tbl_train) {
+aggregate_by_stimulus_and_response <- function(tbl_stim_id, tbl_df) {
   #' aggregate responses by participant, stimulus id, category, and response
   #' 
   #' @description make sure categories not responded to are filled with 0s
   #' 
   #' @param tbl_stim_id tbl_df containing all training stim_id with 
   #' associated x values and categories
-  #' @param tbl_train tbl df with all category learning training data
+  #' @param tbl_df tbl df with all category learning training data
   #' @return aggregated tbl df
   #' 
   
+  session <- tbl_df$session[1]
   tbl_design <- tbl_stim_id %>% 
     crossing(
-      response = unique(tbl_train$response), 
-      participant = unique(tbl_train$participant)
+      response = unique(tbl_df$response), 
+      participant = unique(tbl_df$participant)
     ) %>%
     relocate(stim_id, .before = category)
   
-  tbl_train_agg <- tbl_train_last %>% 
-    group_by(participant, stim_id, d1i, d2i, d1i_z, d2i_z, category, response) %>%
+  tbl_train_agg <- tbl_df %>% 
+    group_by(participant, session, stim_id, d1i, d2i, d1i_z, d2i_z, category, response) %>%
     summarize(
       n_responses = n()
     )
@@ -393,6 +476,7 @@ aggregate_by_stimulus_and_response <- function(tbl_stim_id, tbl_train) {
     )
   
   tbl_$n_responses[is.na(tbl_$n_responses)] <- 0
+  tbl_$session[is.na(tbl_$session)] <- session
   tbl_ %>% group_by(participant, d1i, d2i) %>%
     mutate(
       n_trials = sum(n_responses),
@@ -421,24 +505,43 @@ bayesian_gcm <- function(tbl_participant, l_stan_params, mod_gcm) {
   #' @return loo
   #'
   
-  participant_sample <- tbl_participant$participant[1]
-  tbl_gcm <- tbl_participant %>% 
+  tbl_train <- tbl_participant %>% filter(session == "train")
+  tbl_transfer <- tbl_participant %>% filter(session == "transfer")
+  participant_sample <- tbl_train$participant[1]
+  tbl_gcm_train <- tbl_train %>% 
     filter(category == response) %>% 
+    mutate(prop_correct = prop_responses)
+  tbl_gcm_transfer <- tbl_transfer %>%
+    filter(category == response) %>%
     mutate(prop_correct = prop_responses)
   
   # compute pairwise distances
-  m_distances_x1 <- map(1:nrow(tbl_gcm), distance_1d, tbl_gcm, "d1i_z") %>% unlist() %>%
-    matrix(byrow = TRUE, nrow = nrow(tbl_gcm), ncol = nrow(tbl_gcm))
-  m_distances_x2 <- map(1:nrow(tbl_gcm), distance_1d, tbl_gcm, "d2i_z") %>% unlist() %>%
-    matrix(byrow = TRUE, nrow = nrow(tbl_gcm), ncol = nrow(tbl_gcm))
+  m_distances_x1_train <- map(1:nrow(tbl_gcm_train), distance_1d, tbl_gcm_train, "d1i_z") %>% unlist() %>%
+    matrix(byrow = TRUE, nrow = nrow(tbl_gcm_train), ncol = nrow(tbl_gcm_train))
+  m_distances_x2_train <- map(1:nrow(tbl_gcm_train), distance_1d, tbl_gcm_train, "d2i_z") %>% unlist() %>%
+    matrix(byrow = TRUE, nrow = nrow(tbl_gcm_train), ncol = nrow(tbl_gcm_train))
+  
+  m_distances_x1_transfer <- map(1:nrow(tbl_gcm_transfer), distance_1d, tbl_gcm_transfer, "d1i_z") %>% unlist() %>%
+    matrix(byrow = TRUE, nrow = nrow(tbl_gcm_transfer), ncol = nrow(tbl_gcm_transfer))
+  m_distances_x2_transfer <- map(1:nrow(tbl_gcm_transfer), distance_1d, tbl_gcm_transfer, "d2i_z") %>% unlist() %>%
+    matrix(byrow = TRUE, nrow = nrow(tbl_gcm_transfer), ncol = nrow(tbl_gcm_transfer))
   
   l_data <- list(
-    n_stim = nrow(tbl_gcm), n_trials = tbl_gcm$n_trials, 
-    n_correct = tbl_gcm$n_responses, n_cat = length(unique(tbl_gcm$category)),
-    cat = as.numeric(factor(tbl_gcm$category, labels = c(1, 2, 3))),
-    d1 = m_distances_x1, d2 = m_distances_x2,
-    n_correct_predict = tbl_gcm$n_responses,
-    n_trials_per_item = tbl_gcm$n_trials
+    # train
+    n_stim = nrow(tbl_gcm_train), 
+    n_cat = length(unique(tbl_gcm_train$category)),
+    n_trials = tbl_gcm_train$n_trials, 
+    n_correct = tbl_gcm_train$n_responses,
+    cat = as.numeric(factor(tbl_gcm_train$category, labels = c(1, 2, 3))),
+    d1 = m_distances_x1_train, 
+    d2 = m_distances_x2_train,
+    # transfer / predict
+    n_stim_predict = nrow(tbl_gcm_transfer),
+    n_trials_predict = tbl_gcm_transfer$n_trials,
+    n_correct_predict = tbl_gcm_transfer$n_responses,
+    cat_predict = as.numeric(factor(tbl_gcm_transfer$category, labels = c(1, 2, 3))),
+    d1_predict = m_distances_x1_transfer, 
+    d2_predict = m_distances_x2_transfer
   )
   
   fit_gcm <- mod_gcm$sample(
@@ -451,8 +554,8 @@ bayesian_gcm <- function(tbl_participant, l_stan_params, mod_gcm) {
   
   loo_gcm <- fit_gcm$loo(variables = "log_lik_pred")
   
-  pars_interest <- c("theta", "bs", "c", "w")
-  pars_interest_no_theta <- c("bs", "c", "w")
+  pars_interest <- c("theta", "bs", "c")#, "w")
+  pars_interest_no_theta <- c("bs", "c")#, "w")
   tbl_draws <- fit_gcm$draws(variables = pars_interest, format = "df")
   
   names_thetas <- names(tbl_draws)[startsWith(names(tbl_draws), "theta")]
@@ -461,7 +564,7 @@ bayesian_gcm <- function(tbl_participant, l_stan_params, mod_gcm) {
   
   
   tbl_summary <- fit_gcm$summary(variables = pars_interest)
-  tbl_summary_nok <- tbl_summary %>% filter(rhat > 1.1 | rhat < 0.9)
+  tbl_summary_nok <- tbl_summary %>% filter(rhat > 1.05 | rhat < 0.95)
   if (nrow(tbl_summary_nok) > 0) {
     stop(str_c(
       "participant = ", participant_sample, "; Rhat for some parameters not ok; ",
@@ -488,7 +591,7 @@ bayesian_gcm <- function(tbl_participant, l_stan_params, mod_gcm) {
   c_names <- function(x, y) str_c("data/infpro_task-cat_beh/model-plots/", x, y, ".png")
   l_pl_names <- map(c("gcm-thetas-", "gcm-posteriors-", "gcm-uncertainty-"), c_names, y = participant_sample)
   l_pl <- list(pl_thetas, pl_posteriors, pl_pred_uncertainty)
-  l_vals_size <- list(c(3, 3), c(5, 5), c(5.5, 5.5))
+  l_vals_size <- list(c(3, 3), c(8.5, 3), c(5.5, 5.5))
   pwalk(list(l_pl, l_pl_names, l_vals_size), save_my_png)
   
   return(loo_gcm)

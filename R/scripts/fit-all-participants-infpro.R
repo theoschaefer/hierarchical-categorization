@@ -18,18 +18,30 @@ file_loc_train <- "data/infpro_task-cat_beh/infpro_task-cat_beh.csv"
 file_loc_transfer <- "data/infpro_task-cat_beh/infpro_task-cat2_beh.csv"
 tbl_train <- read_csv(file_loc_train, show_col_types = FALSE)
 tbl_transfer <- read_csv(file_loc_transfer, show_col_types = FALSE)
+colnames(tbl_transfer) <- str_replace(colnames(tbl_transfer), "cat2", "cat")
+tbl_train$session <- "train"
+tbl_transfer$session <- "transfer"
 
-tbl_train <- tbl_train  %>% 
+tbl_both <- tbl_train  %>% 
+  rbind(tbl_transfer) %>%
   mutate(
     d1i_z = scale(d1i)[, 1],
     d2i_z = scale(d2i)[, 1]
   )
+tbl_train <- tbl_both %>% filter(session == "train")
+tbl_transfer <- tbl_both %>% filter(session == "transfer")
 
 tbl_stim_id <- tbl_train %>% count(d1i, d2i, d1i_z, d2i_z, category) %>%
   arrange(d1i, d2i) %>% mutate(stim_id = seq_along(d1i + d2i)) %>%
   select(-n)
+tbl_stim_id_transfer <- tbl_transfer %>% count(d1i, d2i, d1i_z, d2i_z, category) %>%
+  arrange(d1i, d2i) %>% mutate(stim_id = seq_along(d1i + d2i)) %>%
+  select(-n)
 tbl_train <- tbl_train %>% 
   left_join(tbl_stim_id, by = c("d1i", "d2i", "d1i_z", "d2i_z", "category")) %>%
+  relocate(stim_id, .before = d1i)
+tbl_transfer <- tbl_transfer %>%
+  left_join(tbl_stim_id_transfer, by = c("d1i", "d2i", "d1i_z", "d2i_z", "category")) %>%
   relocate(stim_id, .before = d1i)
 
 # define how many trials starting from the last trial should be analyzed
@@ -52,6 +64,7 @@ pl_tf <- plot_average_categorization_accuracy(tbl_transfer, "Transfer")
 marrangeGrob(list(pl_train, pl_tf), ncol = 2, nrow = 1)
 
 tbl_train_agg <- aggregate_by_stimulus_and_response(tbl_stim_id, tbl_train_last)
+tbl_transfer_agg <- aggregate_by_stimulus_and_response(tbl_stim_id_transfer, tbl_transfer)
 tbl_train_agg_overall <- tbl_train_agg %>%
   group_by(d1i, d2i, d1i_z, d2i_z, stim_id, category, response) %>%
   summarize(
@@ -70,35 +83,39 @@ plot_proportion_responses(
 
 tbl_train_last$response_int <- as.numeric(factor(tbl_train_last$response))
 tbl_train_agg$response_int <- as.numeric(factor(tbl_train_agg$response))
+tbl_transfer_agg$response_int <- as.numeric(factor(tbl_transfer_agg$response))
 
 
 l_stan_params <- list(
-  n_samples = 1000,
-  n_warmup = 1000,
+  n_samples = 500,
+  n_warmup = 500,
   n_chains = 1
 )
 
 
 n_workers_available <- parallel::detectCores()
 plan(multisession, workers = n_workers_available - 2)
+plan(multisession, workers = 2)
 
 
 # GCM ---------------------------------------------------------------------
 
+tbl_both_agg <- rbind(tbl_train_agg, tbl_transfer_agg)
 
-l_tbl_train_agg <- split(tbl_train_agg, tbl_train_agg$participant)
+l_tbl_both_agg <- split(tbl_both_agg, tbl_both_agg$participant)
 tbl_participant_agg <- l_tbl_train_agg[["101"]]
 
-stan_gcm <- write_gcm_stan_file()
+stan_gcm <- write_gcm_stan_file_predict()
 mod_gcm <- cmdstan_model(stan_gcm)
 safe_gcm <- safely(bayesian_gcm)
 
-
+options(warn = -1)
 l_loo_gcm <- furrr::future_map(
-  l_tbl_train_agg, safe_gcm, 
+  l_tbl_both_agg, safe_gcm, 
   l_stan_params = l_stan_params, 
   mod_gcm = mod_gcm, 
   .progress = TRUE)
+options(warn = 0)
 saveRDS(l_loo_gcm, file = "data/infpro_task-cat_beh/gcm-loos.RDS")
 # ok
 l_gcm_results <- map(l_loo_gcm, "result")
