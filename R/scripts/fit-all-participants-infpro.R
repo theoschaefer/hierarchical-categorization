@@ -84,15 +84,14 @@ plot_proportion_responses(
   facet_by_response = TRUE
 )
 
-# tbl_train_last$response_int <- as.numeric(factor(tbl_train_last$response))
-# tbl_train_agg$response_int <- as.numeric(factor(tbl_train_agg$response))
-# tbl_transfer_agg$response_int <- as.numeric(factor(tbl_transfer_agg$response))
+tbl_train_agg$response_int <- as.numeric(factor(tbl_train_agg$response))
+tbl_transfer_agg$response_int <- as.numeric(factor(tbl_transfer_agg$response))
 
 
 l_stan_params <- list(
-  n_samples = 100,
-  n_warmup = 200,
-  n_chains = 1
+  n_samples = 2000,
+  n_warmup = 1000,
+  n_chains = 3
 )
 
 

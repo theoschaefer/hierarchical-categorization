@@ -584,7 +584,7 @@ bayesian_gcm <- function(tbl_participant, l_stan_params, mod_gcm) {
   tbl_posterior$parameter <- fct_inorder(tbl_posterior$parameter)
   
   pl_thetas <- plot_item_thetas(tbl_gcm_transfer, str_c("GCM; Participant = ", participant_sample))
-  pl_posteriors <- plot_posteriors(tbl_posterior)
+  pl_posteriors <- plot_posteriors(tbl_posterior, tbl_label)
   pl_pred_uncertainty <- plot_proportion_responses(tbl_gcm_transfer, color_pred_difference = TRUE)
   
   # save plots
@@ -678,7 +678,7 @@ bayesian_gaussian_naive_bayes <- function(
   tbl_posterior$parameter <- fct_inorder(tbl_posterior$parameter)
   
   pl_thetas <- plot_item_thetas(tbl_participant_agg, str_c("Gaussian 1D; Participant = ", participant_sample))
-  pl_posteriors <- plot_posteriors(tbl_posterior, n_cols = 3)
+  pl_posteriors <- plot_posteriors(tbl_posterior, tbl_label, n_cols = 3)
   pl_pred_uncertainty <- plot_proportion_responses(tbl_participant_agg, color_pred_difference = TRUE)
   
   # save plots
@@ -709,16 +709,17 @@ bayesian_gaussian_multi_bayes <- function(
   #' @return loo
   #'
   
-  participant_sample <- tbl_participant$participant[1]
+  tbl_train <- tbl_participant %>% filter(session == "train")
   tbl_participant_agg <- tbl_participant_agg %>% 
-    filter(response == category) %>%
+    filter(response == category & session == "transfer") %>%
     mutate(prop_correct = prop_responses)
+  participant_sample <- tbl_train$participant[1]
   
   l_data <- list(
-    D = 2, K = length(unique(tbl_participant$category)),
-    N = nrow(tbl_participant),
-    y = tbl_participant[, c("d1i_z", "d2i_z")] %>% as.matrix(),
-    cat = tbl_participant$response_int,
+    D = 2, K = length(unique(tbl_train$category)),
+    N = nrow(tbl_train),
+    y = tbl_train[, c("d1i_z", "d2i_z")] %>% as.matrix(),
+    cat = tbl_train$response_int,
     cat_true = tbl_participant_agg$response_int,
     n_stim = nrow(tbl_participant_agg),
     y_unique = tbl_participant_agg[, c("d1i_z", "d2i_z")] %>% as.matrix(),
@@ -746,6 +747,7 @@ bayesian_gaussian_multi_bayes <- function(
     reduce(rbind) %>% colSums()
   names_sigmas_keep <- names_sigmas[as.logical(abs(sigmas_keep - 1))]
   pars_interest_no_theta <- c("mu", names_sigmas_keep)
+  pars_interest_no_theta_idx <- str_replace(pars_interest_no_theta, "\\[", "\\\\[")
   
 
   names_thetas <- names(tbl_draws)[startsWith(names(tbl_draws), "theta")]
@@ -761,7 +763,7 @@ bayesian_gaussian_multi_bayes <- function(
       "model can be found under: ", file_loc
     ))
   }
-  idx_no_theta <- map(pars_interest_no_theta, ~ str_detect(tbl_summary$variable, .x)) %>%
+  idx_no_theta <- map(pars_interest_no_theta_idx, ~ str_detect(tbl_summary$variable, .x)) %>%
     reduce(rbind) %>% colSums()
   tbl_label <- tbl_summary[as.logical(idx_no_theta), ]
   
@@ -774,7 +776,7 @@ bayesian_gaussian_multi_bayes <- function(
   
   
   pl_thetas <- plot_item_thetas(tbl_participant_agg, str_c("Multivariate Gaussian; Participant = ", participant_sample))
-  pl_posteriors <- plot_posteriors(tbl_posterior, n_cols = 6)
+  pl_posteriors <- plot_posteriors(tbl_posterior, tbl_label, n_cols = 6)
   pl_pred_uncertainty <- plot_proportion_responses(tbl_participant_agg, color_pred_difference = TRUE)
   
 
@@ -786,7 +788,7 @@ bayesian_gaussian_multi_bayes <- function(
     c_names, y = participant_sample
   )
   l_pl <- list(pl_thetas, pl_posteriors, pl_pred_uncertainty)
-  l_vals_size <- list(c(3, 3), c(11, 5.5), c(5.5, 5.5))
+  l_vals_size <- list(c(3.5, 3.5), c(11, 5.5), c(7.5, 7.5))
   pwalk(list(l_pl, l_pl_names, l_vals_size), save_my_png)
   
   return(loo_multi)

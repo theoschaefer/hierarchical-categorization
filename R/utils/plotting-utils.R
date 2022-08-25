@@ -86,12 +86,14 @@ plot_proportion_responses <- function(tbl_df, facet_by_response = FALSE, color_p
 }
 
 
-plot_posteriors <- function(tbl_posterior, n_cols = 4) {
+plot_posteriors <- function(tbl_posterior, tbl_label, n_cols = 4) {
   #' histograms of posterior distributions
   #' 
   #' @description faceted by parameter
   #' 
   #' @param tbl_posterior tbl_df with samples from the posterior in long format
+  #' @param tbl_label tbl_df with labels and their positions
+  #' @param n_cols nr of columns to plot in the arrangement
   #' @return ggplot object
   #' 
   
