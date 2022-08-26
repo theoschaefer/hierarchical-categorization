@@ -549,7 +549,7 @@ bayesian_gcm <- function(tbl_participant, l_stan_params, mod_gcm) {
     iter_sampling = l_stan_params$n_samples, iter_warmup = l_stan_params$n_warmup
   )
   
-  file_loc <- str_c("data/infpro_task-cat_beh/gcm-model-", participant_sample, ".RDS")
+  file_loc <- str_c("data/infpro_task-cat_beh/models/gcm-model-", participant_sample, ".RDS")
   fit_gcm$save_object(file = file_loc)
   
   loo_gcm <- fit_gcm$loo(variables = "log_lik_pred")
@@ -564,13 +564,15 @@ bayesian_gcm <- function(tbl_participant, l_stan_params, mod_gcm) {
   
   
   tbl_summary <- fit_gcm$summary(variables = c("theta", "bs", "c"))
-  tbl_summary_nok <- tbl_summary %>% filter(rhat > 1.05 | rhat < 0.95)
+  tbl_summary_nok <- tbl_summary %>% filter(rhat > 1.025 | rhat < 0.975)
   if (nrow(tbl_summary_nok) > 0) {
     stop(str_c(
       "participant = ", participant_sample, "; Rhat for some parameters not ok; ",
       "model can be found under: ", 
     ))
   }
+  file_loc <- str_c("data/infpro_task-cat_beh/models/gcm-summary-", participant_sample, ".RDS")
+  saveRDS(tbl_summary, file_loc)
   
   idx_no_theta <- map(pars_interest_no_theta, ~ str_detect(tbl_summary$variable, .x)) %>%
     reduce(rbind) %>% colSums()
@@ -585,7 +587,7 @@ bayesian_gcm <- function(tbl_participant, l_stan_params, mod_gcm) {
   
   pl_thetas <- plot_item_thetas(tbl_gcm_transfer, str_c("GCM; Participant = ", participant_sample))
   pl_posteriors <- plot_posteriors(tbl_posterior, tbl_label)
-  pl_pred_uncertainty <- plot_proportion_responses(tbl_gcm_transfer, color_pred_difference = TRUE)
+  pl_pred_uncertainty <- plot_proportion_responses(tbl_gcm_transfer, participant_sample, color_pred_difference = TRUE)
   
   # save plots
   c_names <- function(x, y) str_c("data/infpro_task-cat_beh/model-plots/", x, y, ".png")
@@ -634,7 +636,7 @@ bayesian_gaussian_naive_bayes <- function(
     iter_sampling = l_stan_params$n_samples, iter_warmup = l_stan_params$n_warmup
   )
   file_loc <- str_c(
-    "data/infpro_task-cat_beh/gaussian-model-", participant_sample, ".RDS"
+    "data/infpro_task-cat_beh/models/gaussian-model-", participant_sample, ".RDS"
   )
   fit_gaussian$save_object(file = file_loc)
   
@@ -658,13 +660,16 @@ bayesian_gaussian_naive_bayes <- function(
   tbl_summary$variable[old_3] <- "mu2[1]"
   tbl_summary$variable[old_1] <- "mu2[3]"
   
-  tbl_summary_nok <- tbl_summary %>% filter(rhat > 1.1 | rhat < 0.9)
+  tbl_summary_nok <- tbl_summary %>% filter(rhat > 1.025 | rhat < 0.975)
   if (nrow(tbl_summary_nok) > 0) {
     stop(str_c(
       "participant = ", participant_sample, "; Rhat for some parameters not ok",
       "model can be found under: ", file_loc
     ))
   }
+  
+  file_loc <- str_c("data/infpro_task-cat_beh/models/gaussian-summary-", participant_sample, ".RDS")
+  saveRDS(tbl_summary, file_loc)
   
   idx_no_theta <- map(pars_interest_no_theta, ~ str_detect(tbl_summary$variable, .x)) %>%
     reduce(rbind) %>% colSums()
@@ -679,7 +684,7 @@ bayesian_gaussian_naive_bayes <- function(
   
   pl_thetas <- plot_item_thetas(tbl_participant_agg, str_c("Gaussian 1D; Participant = ", participant_sample))
   pl_posteriors <- plot_posteriors(tbl_posterior, tbl_label, n_cols = 3)
-  pl_pred_uncertainty <- plot_proportion_responses(tbl_participant_agg, color_pred_difference = TRUE)
+  pl_pred_uncertainty <- plot_proportion_responses(tbl_participant_agg, participant_sample, color_pred_difference = TRUE)
   
   # save plots
   c_names <- function(x, y) str_c("data/infpro_task-cat_beh/model-plots/", x, y, ".png")
@@ -731,7 +736,7 @@ bayesian_gaussian_multi_bayes <- function(
     iter_sampling = l_stan_params$n_samples, iter_warmup = l_stan_params$n_warmup
   )
   file_loc <- str_c(
-    "data/infpro_task-cat_beh/multi-model-", participant_sample, ".RDS"
+    "data/infpro_task-cat_beh/models/multi-model-", participant_sample, ".RDS"
   )
   fit_multi$save_object(file = file_loc)
   
@@ -756,13 +761,17 @@ bayesian_gaussian_multi_bayes <- function(
   
   
   tbl_summary <- fit_multi$summary(variables = pars_interest)
-  tbl_summary_nok <- tbl_summary %>% filter(rhat > 1.1 | rhat < 0.9)
+  tbl_summary_nok <- tbl_summary %>% filter(rhat > 1.025 | rhat < 0.975)
   if (nrow(tbl_summary_nok) > 0) {
     stop(str_c(
       "participant = ", participant_sample, "; Rhat for some parameters not ok",
       "model can be found under: ", file_loc
     ))
   }
+  
+  file_loc <- str_c("data/infpro_task-cat_beh/models/multi-model-summary-", participant_sample, ".RDS")
+  saveRDS(tbl_summary, file_loc)
+  
   idx_no_theta <- map(pars_interest_no_theta_idx, ~ str_detect(tbl_summary$variable, .x)) %>%
     reduce(rbind) %>% colSums()
   tbl_label <- tbl_summary[as.logical(idx_no_theta), ]
@@ -775,9 +784,9 @@ bayesian_gaussian_multi_bayes <- function(
   tbl_posterior$parameter <- fct_inorder(tbl_posterior$parameter)
   
   
-  pl_thetas <- plot_item_thetas(tbl_participant_agg, str_c("Multivariate Gaussian; Participant = ", participant_sample))
+  pl_thetas <- plot_item_thetas(tbl_participant_agg, str_c("MV Gaussian; Participant = ", participant_sample))
   pl_posteriors <- plot_posteriors(tbl_posterior, tbl_label, n_cols = 6)
-  pl_pred_uncertainty <- plot_proportion_responses(tbl_participant_agg, color_pred_difference = TRUE)
+  pl_pred_uncertainty <- plot_proportion_responses(tbl_participant_agg, participant_sample, color_pred_difference = TRUE)
   
 
   

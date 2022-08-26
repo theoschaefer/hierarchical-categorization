@@ -79,7 +79,8 @@ tbl_train_agg_overall <- tbl_train_agg %>%
 # all responses
 participant_sample <- "Average of All"
 plot_proportion_responses(
-  tbl_train_agg_overall %>% mutate(response = str_c("Response = ", response)) %>%
+  tbl_train_agg_overall %>% 
+    mutate(response = str_c("Response = ", response)) %>%
     filter(prop_responses > .025),
   facet_by_response = TRUE
 )
@@ -96,8 +97,7 @@ l_stan_params <- list(
 
 
 n_workers_available <- parallel::detectCores()
-plan(multisession, workers = n_workers_available - 2)
-plan(multisession, workers = 2)
+plan(multisession, workers = n_workers_available / 2)
 
 
 # GCM ---------------------------------------------------------------------
@@ -116,9 +116,11 @@ l_loo_gcm <- furrr::future_map(
   l_tbl_both_agg, safe_gcm, 
   l_stan_params = l_stan_params, 
   mod_gcm = mod_gcm, 
-  .progress = TRUE)
+  .progress = TRUE
+)
 options(warn = 0)
 saveRDS(l_loo_gcm, file = "data/infpro_task-cat_beh/gcm-loos.RDS")
+
 # ok
 l_gcm_results <- map(l_loo_gcm, "result")
 # not ok
@@ -193,3 +195,6 @@ ggplot(tbl_weights, aes(weight_prototype)) +
   geom_histogram(fill = "#66CCFF", color = "white") +
   theme_bw() +
   labs(x = "Model Weight Prototype Model", y = "Nr. Participants")
+
+
+
