@@ -22,13 +22,21 @@ colnames(tbl_transfer) <- str_replace(colnames(tbl_transfer), "cat2", "cat")
 tbl_train$session <- "train"
 tbl_transfer$session <- "transfer"
 
+mean_d1i <- mean(tbl_both$d1i)
+sd_d1i <- sd(tbl_both$d1i)
+mean_d2i <- mean(tbl_both$d2i)
+sd_d2i <- sd(tbl_both$d2i)
+
+# re-coding category and response due to ordering constraints in the Bayesian models
 tbl_both <- tbl_train  %>% 
   rbind(tbl_transfer) %>%
   mutate(
     d1i_z = scale(d1i)[, 1],
     d2i_z = scale(d2i)[, 1],
-    response_int = as.numeric(factor(response))
-    
+    category = recode_factor(category, "B" = "C", "C" = "B"),
+    response = recode_factor(response, "B" = "C", "C" = "B"),
+    category_int = as.numeric(factor(category)),
+    response_int = as.numeric(factor(response)),
   )
 tbl_train <- tbl_both %>% filter(session == "train")
 tbl_transfer <- tbl_both %>% filter(session == "transfer")
@@ -82,6 +90,7 @@ plot_proportion_responses(
   tbl_train_agg_overall %>% 
     mutate(response = str_c("Response = ", response)) %>%
     filter(prop_responses > .025),
+  participant_sample,
   facet_by_response = TRUE
 )
 
@@ -97,7 +106,7 @@ l_stan_params <- list(
 
 
 n_workers_available <- parallel::detectCores()
-plan(multisession, workers = n_workers_available / 2)
+plan(multisession, workers = n_workers_available - 2)
 
 
 # GCM ---------------------------------------------------------------------
@@ -105,7 +114,6 @@ plan(multisession, workers = n_workers_available / 2)
 tbl_both_agg <- rbind(tbl_train_agg, tbl_transfer_agg)
 
 l_tbl_both_agg <- split(tbl_both_agg, tbl_both_agg$participant)
-tbl_participant <- l_tbl_both_agg[["101"]]
 
 stan_gcm <- write_gcm_stan_file_predict()
 mod_gcm <- cmdstan_model(stan_gcm)
@@ -120,6 +128,7 @@ l_loo_gcm <- furrr::future_map(
 )
 options(warn = 0)
 saveRDS(l_loo_gcm, file = "data/infpro_task-cat_beh/gcm-loos.RDS")
+l_loo_gcm <- readRDS(file = "data/infpro_task-cat_beh/gcm-loos.RDS")
 
 # ok
 l_gcm_results <- map(l_loo_gcm, "result")
@@ -131,8 +140,6 @@ map(l_loo_gcm, "error") %>% reduce(c)
 
 
 l_tbl_both <- split(tbl_both, tbl_both$participant)
-tbl_participant <- l_tbl_both[["101"]]
-tbl_participant_agg <- l_tbl_both_agg[["101"]]
 
 stan_gaussian <- write_gaussian_naive_bayes_stan()
 mod_gaussian <- cmdstan_model(stan_gaussian)
@@ -145,6 +152,7 @@ l_loo_gaussian <- furrr::future_map2(
   .progress = TRUE
 )
 saveRDS(l_loo_gaussian, file = "data/infpro_task-cat_beh/gaussian-loos.RDS")
+l_loo_gaussian <- readRDS(file = "data/infpro_task-cat_beh/gaussian-loos.RDS")
 
 # ok
 l_gaussian_results <- map(l_loo_gaussian, "result")
@@ -166,6 +174,7 @@ l_loo_multi <- furrr::future_map2(
   .progress = TRUE
 )
 saveRDS(l_loo_multi, file = "data/infpro_task-cat_beh/multi-loos.RDS")
+l_loo_multi <- readRDS(file = "data/infpro_task-cat_beh/multi-loos.RDS")
 
 # ok
 l_multi_results <- map(l_loo_multi, "result")
@@ -197,4 +206,56 @@ ggplot(tbl_weights, aes(weight_prototype)) +
   labs(x = "Model Weight Prototype Model", y = "Nr. Participants")
 
 
+# Distribution of Model Parameters ----------------------------------------
+search_words <- c("gcm-summary", "gaussian-summary", "multi-model-summary")
+model_dir <- dir("data/infpro_task-cat_beh/models/")
+path_summary <- map(search_words, ~ str_c("data/infpro_task-cat_beh/models/", model_dir[startsWith(model_dir, .x)]))
 
+# gcm
+l_summary_gcm <- map(path_summary[[1]], readRDS)
+# participants have a response bias for categories 1 and 2 (i.e., the target categories)
+map(l_summary_gcm, ~ .x[str_starts(.x$variable, "b|c"), ]) %>%
+  reduce(rbind) %>%
+  ggplot(aes(mean)) +
+  geom_histogram(fill = "#66CCFF", color = "white") +
+  facet_wrap(~ variable, scales = "free") +
+  theme_bw() +
+  labs(
+    x = "Mean Parameter",
+    y = "Nr. Participants"
+  )
+
+# naive bayes
+
+l_summary_gaussian <- map(path_summary[[2]], readRDS)
+tbl_summaries <- l_summary_gaussian %>% reduce(rbind)
+mean_representation <- function(cat, tbl_summary){
+  var1 <- str_c("mu1[", cat, "]")
+  var2 <- str_c("mu2[", cat, "]")
+  tbl_summary %>% filter(variable == var1 | variable == var2) %>%
+    mutate(participant_id = rep(1:50, each = 2)) %>%
+    select(c(participant_id, variable, mean)) %>%
+    pivot_wider(names_from = "variable", values_from = "mean") %>%
+    mutate(category = cat) %>%
+    rename(x_z = var1, y_z = var2)
+}
+
+tbl_all <- map(c(1, 2), mean_representation, tbl_summary = tbl_summaries) %>%
+  reduce(rbind) %>%
+  mutate(
+    x = x_z * sd_d1i + mean_d1i,
+    y = y_z * sd_d2i + mean_d2i,
+    category = factor(category, labels = 1:2)
+    )
+
+pl <- ggplot(tbl_all, aes(x, y, group = category)) +
+  geom_point(shape = 1, size = 2, aes(color = category)) +
+  geom_density2d(aes(color = category)) +
+  theme_bw() +
+  theme(plot.title = element_text(size = 10)) +
+  scale_color_brewer(palette = "Set1", name = "Category") +
+  labs(
+    x = "Head Spikiness",
+    y = "Belly Size"
+  )
+ggExtra::ggMarginal(pl, groupFill = TRUE, type = "histogram")
