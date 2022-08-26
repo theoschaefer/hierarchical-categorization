@@ -49,7 +49,10 @@ plot_item_thetas <- function(tbl_df, title) {
 }
 
 
-plot_proportion_responses <- function(tbl_df, facet_by_response = FALSE, color_pred_difference = FALSE) {
+plot_proportion_responses <- function(
+    tbl_df, participant_sample, 
+    facet_by_response = FALSE, color_pred_difference = FALSE
+) {
   #' scatter plot of stimuli in feature space
   #' 
   #' @description filled by true category, faceted by response, 
@@ -74,7 +77,7 @@ plot_proportion_responses <- function(tbl_df, facet_by_response = FALSE, color_p
       scale_color_gradient2(
         name = "Prediction Difference",
         low = "#0099FF", mid = "white", high = "#FF9999"
-        )
+      )
   } else {
     pl <- pl + geom_point(aes(size = prop_responses, color = category)) 
   }
