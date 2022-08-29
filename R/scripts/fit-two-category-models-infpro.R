@@ -13,6 +13,18 @@ file_loc_transfer <- "data/infpro_task-cat_beh/infpro_task-cat2_beh.csv"
 tbl_train <- read_csv(file_loc_train, show_col_types = FALSE)
 tbl_transfer <- read_csv(file_loc_transfer, show_col_types = FALSE)
 
+(tbl_train %>% group_by(category) %>% count(name = "n_stimuli") %>% ungroup() %>% mutate(n_total = sum(n_stimuli), prop_category = n_stimuli/n_total) %>% select(c(category, n_stimuli, prop_category))) %>%
+  left_join(
+    tbl_train %>% group_by(response) %>% count(name = "n_responses") %>% ungroup() %>% mutate(n_total = sum(n_responses), prop_response = n_responses/n_total) %>% select(c(response, n_responses, prop_response)),
+    by = c("category" = "response")
+  )
+
+(tbl_transfer %>% group_by(category) %>% count(name = "n_stimuli") %>% ungroup() %>% mutate(n_total = sum(n_stimuli), prop_category = n_stimuli/n_total) %>% select(c(category, n_stimuli, prop_category))) %>%
+  left_join(
+    tbl_transfer %>% group_by(response) %>% count(name = "n_responses") %>% ungroup() %>% mutate(n_total = sum(n_responses), prop_response = n_responses/n_total) %>% select(c(response, n_responses, prop_response)),
+    by = c("category" = "response")
+  )
+
 tbl_train <- tbl_train  %>% 
   mutate(
     d1i_z = scale(d1i)[, 1],
