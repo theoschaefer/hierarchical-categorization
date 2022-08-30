@@ -10,6 +10,11 @@ library(loo)
 utils_loc <- c("R/utils/plotting-utils.R", "R/utils/utils.R")
 walk(utils_loc, source)
 
+if (!dir.exists("data/")) dir.create("data/")
+if (!dir.exists("data/infpro_task-cat_beh/")) dir.create("data/infpro_task-cat_beh/")
+if (!dir.exists("data/infpro_task-cat_beh/models/")) dir.create("data/infpro_task-cat_beh/models/")
+if (!dir.exists("data/infpro_task-cat_beh/model-plots/")) dir.create("data/infpro_task-cat_beh/model-plots/")
+if (!dir.exists("data/infpro_task-cat_beh/figures/")) dir.create("data/infpro_task-cat_beh/figures/")
 
 # Load Data and Preprocess Them -------------------------------------------
 
