@@ -46,10 +46,10 @@ tbl_transfer <- tbl_both %>% filter(session == "transfer")
 
 tbl_stim_id <- tbl_train %>% count(d1i, d2i, d1i_z, d2i_z, category) %>%
   arrange(d1i, d2i) %>% mutate(stim_id = seq_along(d1i + d2i)) %>%
-  select(-n)
+  dplyr::select(-n)
 tbl_stim_id_transfer <- tbl_transfer %>% count(d1i, d2i, d1i_z, d2i_z, category) %>%
   arrange(d1i, d2i) %>% mutate(stim_id = seq_along(d1i + d2i)) %>%
-  select(-n)
+  dplyr::select(-n)
 tbl_train <- tbl_train %>% 
   left_join(tbl_stim_id, by = c("d1i", "d2i", "d1i_z", "d2i_z", "category")) %>%
   relocate(stim_id, .before = d1i)
@@ -103,17 +103,23 @@ tbl_train_agg$response_int <- as.numeric(factor(
 tbl_transfer_agg$response_int <- as.numeric(factor(
   tbl_transfer_agg$response, levels = c("A", "B", "C"), ordered = TRUE
 ))
+tbl_train_agg$category_int <- as.numeric(factor(
+  tbl_train_agg$category, levels = c("A", "B", "C"), ordered = TRUE
+))
+tbl_transfer_agg$category_int <- as.numeric(factor(
+  tbl_transfer_agg$category, levels = c("A", "B", "C"), ordered = TRUE
+))
 
 
 l_stan_params <- list(
-  n_samples = 2000,
+  n_samples = 2500,
   n_warmup = 1000,
   n_chains = 3
 )
 
 
 n_workers_available <- parallel::detectCores()
-plan(multisession, workers = n_workers_available - 2)
+plan(multisession, workers = n_workers_available / 2)
 
 
 # GCM ---------------------------------------------------------------------
@@ -143,7 +149,6 @@ map(l_loo_gcm, "error") %>% reduce(c)
 
 
 # Gaussian ----------------------------------------------------------------
-
 
 l_tbl_both <- split(tbl_both, tbl_both$participant)
 
@@ -211,8 +216,10 @@ ggplot(tbl_weights, aes(weight_prototype)) +
   theme_bw() +
   labs(x = "Model Weight Prototype Model", y = "Nr. Participants")
 
+saveRDS(tbl_weights, file = "data/infpro_task-cat_beh/model-weights.rds")
 
 # Distribution of Model Parameters ----------------------------------------
+
 search_words <- c("gcm-summary", "gaussian-summary", "multi-model-summary")[1:2]
 model_dir <- dir("data/infpro_task-cat_beh/models/")
 path_summary <- map(search_words, ~ str_c("data/infpro_task-cat_beh/models/", model_dir[startsWith(model_dir, .x)]))
@@ -231,7 +238,7 @@ map(l_summary_gcm, ~ .x[str_starts(.x$variable, "b|c"), ]) %>%
     y = "Nr. Participants"
   )
 
-# naive bayes
+# 1D Gaussian
 
 l_summary_gaussian <- map(path_summary[[2]], readRDS)
 tbl_summaries <- l_summary_gaussian %>% reduce(rbind)
@@ -239,11 +246,16 @@ mean_representation <- function(cat, tbl_summary){
   var1 <- str_c("mu1[", cat, "]")
   var2 <- str_c("mu2[", cat, "]")
   tbl_summary %>% filter(variable == var1 | variable == var2) %>%
-    mutate(participant_id = rep(1:length(l_summary_gaussian), each = 2)) %>%
-    select(c(participant_id, variable, mean)) %>%
+    select(c(participant, variable, mean)) %>%
     pivot_wider(names_from = "variable", values_from = "mean") %>%
     mutate(category = cat) %>%
     rename(x_z = var1, y_z = var2)
+}
+
+response_biases <- function(tbl_summary){
+  tbl_summary %>% filter(variable == "cat_prior[1]" | variable == "cat_prior[2]" | variable == "cat_prior[3]") %>%
+    dplyr::select(c(participant, variable, mean)) %>%
+    pivot_wider(names_from = "variable", values_from = "mean")
 }
 
 tbl_all <- map(c(1, 2, 3), mean_representation, tbl_summary = tbl_summaries) %>%
@@ -253,6 +265,13 @@ tbl_all <- map(c(1, 2, 3), mean_representation, tbl_summary = tbl_summaries) %>%
     y = y_z * sd_d2i + mean_d2i,
     category = factor(category, labels = 1:3)
   )
+
+response_biases(tbl_summaries) %>%
+  pivot_longer(cols = -participant) %>%
+  ggplot(aes(value)) +
+  geom_histogram(fill = "#66CCFF", color = "white") +
+  facet_wrap(~ name) +
+  theme_bw() 
 
 pl <- ggplot(tbl_all, aes(x, y, group = category)) +
   geom_point(shape = 1, size = 2, aes(color = category)) +
@@ -265,6 +284,7 @@ pl <- ggplot(tbl_all, aes(x, y, group = category)) +
     y = "Belly Size"
   )
 ggExtra::ggMarginal(pl, groupFill = TRUE, type = "histogram")
+saveRDS(tbl_all, file = "data/infpro_task-cat_beh/1d-participant-posterior-means.rds")
 
 
 map(l_loo_weights, "result") %>% reduce(rbind) %>%
@@ -273,3 +293,32 @@ map(l_loo_weights, "result") %>% reduce(rbind) %>%
   ggplot(aes(value)) +
   geom_histogram() +
   facet_wrap(~ name)
+
+tbl_biases <- response_biases(tbl_summaries) %>%
+  pivot_longer(-participant, names_to = "variable", values_to = "mean") %>%
+  mutate(
+    variable = factor(variable, labels = c("Bias Category 1", "Bias Category 2", "Bias Category 3")),
+    model = "Gaussian"
+  ) %>% rbind(
+    map(l_summary_gcm, ~ .x[str_starts(.x$variable, "b"), ]) %>%
+      reduce(rbind) %>% dplyr::select(c(participant, variable, mean)) %>%
+      mutate(
+        variable = factor(variable, labels = c("Bias Category 1", "Bias Category 2", "Bias Category 3")),
+        model = "GCM"
+      )    
+  )
+
+tbl_biases %>%
+  ggplot(aes(mean)) +
+  geom_histogram() +
+  facet_grid(model ~ variable) +
+  geom_histogram(fill = "#66CCFF", color = "white") +
+  theme_bw()
+
+tbl_biases %>% 
+  pivot_wider(id_cols = c(participant, variable), names_from = model, values_from = mean) %>%
+  ggplot(aes(Gaussian, GCM)) +
+  geom_smooth(method = "lm", se = FALSE, color = "#66CCFF") +
+  geom_point() +
+  facet_wrap(~ variable) +
+  theme_bw()

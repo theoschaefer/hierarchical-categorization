@@ -165,6 +165,7 @@ data {
  int K; //number of categories
  int N; //number of data
  int n_stim; // nr of different stimuli
+ array[K] int n_response_per_cat;
  array[n_stim] int cat_true; // true category for a stimulus
  array[N] int cat; //category response for a stimulus
  matrix[N, D] y;
@@ -177,6 +178,7 @@ parameters {
  ordered[K] mu1; //category means d1
  ordered[K] mu2; //category means d2
  array[D, K] real<lower=0> sigma; //variance
+ simplex[K] cat_prior;
 }
 
 transformed parameters {
@@ -189,8 +191,10 @@ transformed parameters {
      LL1_unique[k] = normal_lpdf(y_unique[n, 1] | mu1[k], sigma[1, k]);
      LL2_unique[k] = normal_lpdf(y_unique[n, 2] | sort_desc(mu2)[k], sigma[2, k]);
    }
-   theta[n] = exp(LL1_unique[cat_true[n]] + LL2_unique[cat_true[n]]) / (
-   exp(LL1_unique[1] + LL2_unique[1]) + exp(LL1_unique[2] + LL2_unique[2]) + exp(LL1_unique[3] + LL2_unique[3])
+   theta[n] = cat_prior[cat_true[n]] * exp(LL1_unique[cat_true[n]] + LL2_unique[cat_true[n]]) / (
+   cat_prior[1] * exp(LL1_unique[1] + LL2_unique[1]) + 
+   cat_prior[2] * exp(LL1_unique[2] + LL2_unique[2]) + 
+   cat_prior[3] * exp(LL1_unique[3] + LL2_unique[3])
    );
  }
 }
@@ -202,6 +206,10 @@ model {
      sigma[d, k] ~ uniform(0.1, 5);
    }
  }
+ 
+ n_response_per_cat ~ multinomial(cat_prior);
+
+ 
  mu1[1] ~ normal(-1.5, .5);
  mu1[2] ~ normal(0, .5);
  mu1[3] ~ normal(1.5, .5);
@@ -216,7 +224,7 @@ model {
      LL1[k] = normal_lpdf(y[n, 1] | mu1[k], sigma[1, k]);
      LL2[k] = normal_lpdf(y[n, 2] | sort_desc(mu2)[k], sigma[2, k]);
    }
-  target += LL1[cat[n]] + LL2[cat[n]];
+  target += LL1[cat[n]] + LL2[cat[n]] + log(cat_prior[cat[n]]);
  }
 }
 
@@ -243,6 +251,7 @@ data {
  int n_stim; // nr of different stimuli
  array[n_stim] int cat_true; // true category for a stimulus
  array[N] int cat; //category response for a stimulus
+ array[K] int n_response_per_cat;
  matrix[N, D] y;
  matrix[n_stim, D] y_unique;
  array[n_stim] int n_correct_predict; // n correct categorization responses on test set
@@ -253,6 +262,7 @@ data {
 parameters {
  array[D] ordered[K] mu; //category means
  array[D, K] real<lower=0> sigma; //variance
+ simplex[K] cat_prior;
 }
 
 transformed parameters {
@@ -265,8 +275,10 @@ transformed parameters {
      LL1_unique[k] = normal_lpdf(y_unique[n, 1] | mu[1][k], sigma[1, k]);
      LL2_unique[k] = normal_lpdf(y_unique[n, 2] | mu[2][k], sigma[2, k]);
    }
-   theta[n] = exp(LL1_unique[cat_true[n]] + LL2_unique[cat_true[n]]) / (
-   exp(LL1_unique[1] + LL2_unique[1]) + exp(LL1_unique[2] + LL2_unique[2]) + exp(LL1_unique[3] + LL2_unique[3])
+   theta[n] =  cat_prior[cat_true[n]] * exp(LL1_unique[cat_true[n]] + LL2_unique[cat_true[n]]) / (
+   cat_prior[1] * exp(LL1_unique[1] + LL2_unique[1]) + 
+   cat_prior[2] * exp(LL1_unique[2] + LL2_unique[2]) + 
+   cat_prior[3] * exp(LL1_unique[3] + LL2_unique[3])
    );
  }
 }
@@ -292,7 +304,7 @@ model {
      LL1[k] = normal_lpdf(y[n, 1] | mu[1][k], sigma[1, k]);
      LL2[k] = normal_lpdf(y[n, 2] | mu[2][k], sigma[2, k]);
    }
-  target += LL1[cat[n]] + LL2[cat[n]];
+  target += LL1[cat[n]] + LL2[cat[n]] + log(cat_prior[cat[n]]);
  }
 }
 
@@ -321,6 +333,7 @@ data {
  int n_stim; // nr of different stimuli
  array[n_stim] int cat_true; // true category for a stimulus
  array[N] int cat; //category response for a stimulus
+ array[K] int n_response_per_cat;
  matrix[N, D] y;
  matrix[n_stim, D] y_unique;
  array[n_stim] int n_correct_predict; // n correct categorization responses on test set
@@ -332,6 +345,7 @@ parameters {
  array[K] cholesky_factor_corr[D] L; //cholesky factor of covariance
  // Sqrt of variances for each variate
  array[K] vector<lower=0>[D] L_std;
+ simplex[K] cat_prior;
 }
 
 transformed parameters {
@@ -343,7 +357,11 @@ transformed parameters {
      matrix[D, D] L_Sigma_unique = diag_pre_multiply(L_std[k], L[k]);
      LL_unique[k] = multi_normal_cholesky_lpdf(y_unique[n] | mu[k], L_Sigma_unique);
    }
-   theta[n] = exp(LL_unique[cat_true[n]] - log_sum_exp(LL_unique));
+   theta[n] =  cat_prior[cat_true[n]] * exp(LL_unique[cat_true[n]]) / (
+   cat_prior[1] * exp(LL_unique[1]) +
+   cat_prior[2] * exp(LL_unique[2]) +
+   cat_prior[3] * exp(LL_unique[3])
+   );
    //theta[n] = exp(LL_unique[cat_true[n]]) / (exp(LL_unique[1]) + exp(LL_unique[2]) + exp(LL_unique[3]));
  }
 }
@@ -362,7 +380,7 @@ model {
      matrix[D, D] L_Sigma = diag_pre_multiply(L_std[k], L[k]);
      LL[k] = multi_normal_cholesky_lpdf(y[n] | mu[k], L_Sigma); 
    }
-  target += LL[cat[n]];
+  target += LL[cat[n]] + log(cat_prior[cat[n]]);
  }
 }
 
@@ -375,7 +393,7 @@ generated quantities {
  }
  
  for (n in 1:n_stim) {
-   log_lik_pred[n] = binomial_lpmf(n_correct_predict[n] | n_trials_per_item[n], theta[n]);
+   log_lik_pred[n] = binomial_lpmf(n_correct_predict[n] | n_trials_per_item[n], theta[n]) + log(cat_prior[cat_true[n]]);
  }
 }
 
@@ -532,14 +550,14 @@ bayesian_gcm <- function(tbl_participant, l_stan_params, mod_gcm) {
     n_cat = length(unique(tbl_gcm_train$category)),
     n_trials = tbl_gcm_train$n_trials, 
     n_correct = tbl_gcm_train$n_responses,
-    cat = as.numeric(factor(tbl_gcm_train$category, labels = c(1, 2, 3))),
+    cat = tbl_gcm_train$category_int,
     d1 = m_distances_x1_train, 
     d2 = m_distances_x2_train,
     # transfer / predict
     n_stim_predict = nrow(tbl_gcm_transfer),
     n_trials_predict = tbl_gcm_transfer$n_trials,
     n_correct_predict = tbl_gcm_transfer$n_responses,
-    cat_predict = as.numeric(factor(tbl_gcm_transfer$category, labels = c(1, 2, 3))),
+    cat_predict = tbl_gcm_transfer$category_int,
     d1_predict = m_distances_x1_transfer, 
     d2_predict = m_distances_x2_transfer
   )
@@ -564,13 +582,14 @@ bayesian_gcm <- function(tbl_participant, l_stan_params, mod_gcm) {
   
   
   tbl_summary <- fit_gcm$summary(variables = c("theta", "bs", "c"))
-  tbl_summary_nok <- tbl_summary %>% filter(rhat > 1.025 | rhat < 0.975)
+  tbl_summary_nok <- tbl_summary %>% filter(rhat > 1.02 | rhat < 0.98)
   if (nrow(tbl_summary_nok) > 0) {
     stop(str_c(
       "participant = ", participant_sample, "; Rhat for some parameters not ok; ",
       "model can be found under: ", 
     ))
   }
+  tbl_summary$participant <- participant_sample
   file_loc <- str_c("data/infpro_task-cat_beh/models/gcm-summary-", participant_sample, ".RDS")
   saveRDS(tbl_summary, file_loc)
   
@@ -579,7 +598,7 @@ bayesian_gcm <- function(tbl_participant, l_stan_params, mod_gcm) {
   tbl_label <- tbl_summary[as.logical(idx_no_theta), ]
   
   tbl_posterior <- tbl_draws %>% 
-    select(starts_with(pars_interest_no_theta), .chain) %>%
+    dplyr::select(starts_with(pars_interest_no_theta), .chain) %>%
     rename(chain = .chain) %>%
     pivot_longer(starts_with(pars_interest_no_theta), names_to = "parameter", values_to = "value") %>%
     filter(parameter != "chain")
@@ -625,6 +644,7 @@ bayesian_gaussian_naive_bayes <- function(
     N = nrow(tbl_train),
     y = tbl_train[, c("d1i_z", "d2i_z")] %>% as.matrix(),
     cat = tbl_train$response_int,
+    n_response_per_cat = tbl_train %>% group_by(response_int) %>% count() %>% ungroup() %>% dplyr::select(n) %>% as_vector(),
     cat_true = tbl_participant_agg$response_int,
     n_stim = nrow(tbl_participant_agg),
     y_unique = tbl_participant_agg[, c("d1i_z", "d2i_z")] %>% as.matrix(),
@@ -643,8 +663,8 @@ bayesian_gaussian_naive_bayes <- function(
   # loo
   loo_gaussian <- fit_gaussian$loo(variables = "log_lik_pred")
   
-  pars_interest <- c("mu1", "mu2", "sigma", "theta")
-  pars_interest_no_theta <- c("mu1", "mu2", "sigma")
+  pars_interest <- c("mu1", "mu2", "sigma", "theta", "cat_prior")
+  pars_interest_no_theta <- c("mu1", "mu2", "sigma", "cat_prior")
   tbl_draws <- fit_gaussian$draws(variables = pars_interest, format = "df")
   tbl_draws <- tbl_draws %>% rename(`mu2[1]` = `mu2[3]`, `mu2[3]` = `mu2[1]`)
   
@@ -660,7 +680,7 @@ bayesian_gaussian_naive_bayes <- function(
   tbl_summary$variable[old_3] <- "mu2[1]"
   tbl_summary$variable[old_1] <- "mu2[3]"
   
-  tbl_summary_nok <- tbl_summary %>% filter(rhat > 1.025 | rhat < 0.975)
+  tbl_summary_nok <- tbl_summary %>% filter(rhat > 1.02 | rhat < 0.98)
   if (nrow(tbl_summary_nok) > 0) {
     stop(str_c(
       "participant = ", participant_sample, "; Rhat for some parameters not ok",
@@ -668,6 +688,7 @@ bayesian_gaussian_naive_bayes <- function(
     ))
   }
   
+  tbl_summary$participant <- participant_sample
   file_loc <- str_c("data/infpro_task-cat_beh/models/gaussian-summary-", participant_sample, ".RDS")
   saveRDS(tbl_summary, file_loc)
   
@@ -725,6 +746,7 @@ bayesian_gaussian_multi_bayes <- function(
     N = nrow(tbl_train),
     y = tbl_train[, c("d1i_z", "d2i_z")] %>% as.matrix(),
     cat = tbl_train$response_int,
+    n_response_per_cat = tbl_train %>% group_by(response_int) %>% count() %>% ungroup() %>% dplyr::select(n) %>% as_vector(),
     cat_true = tbl_participant_agg$response_int,
     n_stim = nrow(tbl_participant_agg),
     y_unique = tbl_participant_agg[, c("d1i_z", "d2i_z")] %>% as.matrix(),
@@ -744,14 +766,14 @@ bayesian_gaussian_multi_bayes <- function(
   loo_multi <- fit_multi$loo(variables = "log_lik_pred")
   
   
-  pars_interest <- c("mu", "Sigma", "theta")
+  pars_interest <- c("mu", "Sigma", "theta", "cat_prior")
   tbl_draws <- fit_multi$draws(variables = pars_interest, format = "df")
   names_params <- names(tbl_draws)
   names_sigmas <- names_params[startsWith(names_params, "Sigma")]
   sigmas_keep <- map(c("2,2]", "1,1]"), ~ as.integer(endsWith(names_sigmas, .x))) %>% 
     reduce(rbind) %>% colSums()
   names_sigmas_keep <- names_sigmas[as.logical(abs(sigmas_keep - 1))]
-  pars_interest_no_theta <- c("mu", names_sigmas_keep)
+  pars_interest_no_theta <- c("mu", names_sigmas_keep, "cat_prior")
   pars_interest_no_theta_idx <- str_replace(pars_interest_no_theta, "\\[", "\\\\[")
   
 
@@ -761,7 +783,7 @@ bayesian_gaussian_multi_bayes <- function(
   
   
   tbl_summary <- fit_multi$summary(variables = pars_interest)
-  tbl_summary_nok <- tbl_summary %>% filter(rhat > 1.025 | rhat < 0.975)
+  tbl_summary_nok <- tbl_summary %>% filter(rhat > 1.02 | rhat < 0.98)
   if (nrow(tbl_summary_nok) > 0) {
     stop(str_c(
       "participant = ", participant_sample, "; Rhat for some parameters not ok",
@@ -769,6 +791,7 @@ bayesian_gaussian_multi_bayes <- function(
     ))
   }
   
+  tbl_summary$participant <- participant_sample
   file_loc <- str_c("data/infpro_task-cat_beh/models/multi-model-summary-", participant_sample, ".RDS")
   saveRDS(tbl_summary, file_loc)
   
@@ -785,7 +808,7 @@ bayesian_gaussian_multi_bayes <- function(
   
   
   pl_thetas <- plot_item_thetas(tbl_participant_agg, str_c("MV Gaussian; Participant = ", participant_sample))
-  pl_posteriors <- plot_posteriors(tbl_posterior, tbl_label, n_cols = 6)
+  pl_posteriors <- plot_posteriors(tbl_posterior, tbl_label, n_cols = 5)
   pl_pred_uncertainty <- plot_proportion_responses(tbl_participant_agg, participant_sample, color_pred_difference = TRUE)
   
 
