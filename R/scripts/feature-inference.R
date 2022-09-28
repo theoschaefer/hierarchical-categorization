@@ -31,8 +31,8 @@ file_loc_gaussian <- str_c(
 )
 m_gcm <- readRDS(file_loc_gcm)
 m_pt <- readRDS(file_loc_gaussian)
-c <- m_gcm$draws(variables = "c", format = "df") %>% as_tibble()
-pts <- m_pt$draws(variables = c("mu1", "mu2"), format = "df")
+post_c <- m_gcm$draws(variables = "c", format = "df") %>% as_tibble()
+post_pts <- m_pt$draws(variables = c("mu1", "mu2"), format = "df")
 
 # all the exemplars observed during training
 l_tbl_exemplars <- tbl_train %>% filter(participant == p_id) %>%
@@ -41,14 +41,37 @@ l_tbl_exemplars <- tbl_train %>% filter(participant == p_id) %>%
   split(.$category)
 
 # this has to be replaced once completion data are available
-tbl_cues <- crossing(x1 = unique(l_tbl_e))
-
-l_tbl_cues <- map2(
+l_tbl_lookup <- map2(
   l_tbl_exemplars, names(l_tbl_exemplars),
   ~ crossing(
     category = ..2,
-    d1i_z = unique(..1$d1i_z),
-    d2i_z = unique(..1$d2i_z)
+    d1i_z = seq(min(..1$d1i_z), max(..1$d1i_z), by = .1),
+    d2i_z = seq(min(..1$d2i_z), max(..1$d2i_z), by = .1)
   )
 )
+
+# categories to be looked at: A & C aka target categories
+
+# iterate over cue dimensions
+cue_dimension <- c("d1i_z", "d2i_z")[1]
+# iterate over all cues from that dimension
+cue <- l_tbl_exemplars$A[1, cue_dimension] %>% as_vector()
+# then compute the similarities to all exemplars from all available values on the grid
+rows_selected <- as.logical(l_tbl_lookup$A[, cue_dimension] == cue)
+grid_vals <- l_tbl_lookup$A[rows_selected, ]
+
+sum_within_category_similarity <- function(x1, x2, c, tbl_df) {
+  sum(map_dbl(c, ~ sum(exp(-.x^2*((x1 - tbl_df$d1i_z)^2 + (x2 - tbl_df$d2i_z)^2)))))
+}
+
+idx_min <- which.max(map2_dbl(
+  grid_vals$d1i_z, grid_vals$d2i_z, 
+  sum_within_category_similarity, 
+  c = as.list(post_c$c),
+  tbl_df = l_tbl_exemplars$A
+))
+
+grid_vals[idx_min, ]
+
+
 
