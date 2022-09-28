@@ -48,6 +48,9 @@ sd_d2i <- sd(tbl_both$d2i)
 
 tbl_train <- tbl_both %>% filter(session == "train")
 tbl_transfer <- tbl_both %>% filter(session == "transfer")
+saveRDS(tbl_both, file = "data/infpro_task-cat_beh/tbl_both.RDS")
+saveRDS(tbl_train, file = "data/infpro_task-cat_beh/tbl_train.RDS")
+saveRDS(tbl_transfer, file = "data/infpro_task-cat_beh/tbl_transfer.RDS")
 
 tbl_stim_id <- tbl_train %>% count(d1i, d2i, d1i_z, d2i_z, category) %>%
   arrange(d1i, d2i) %>% mutate(stim_id = seq_along(d1i + d2i)) %>%
