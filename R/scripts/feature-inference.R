@@ -68,6 +68,20 @@ l_closest <- pmap(
 tbl_closest <- reduce(l_closest, rbind)
 
 max_sim_responses <- function(i_cat, i_dim, l_tbl_lookup, l_tbl_exemplars) {
+  #' iterates over max_sim_response for all possible cue values
+  #' on the given dimension
+  #' 
+  #' @description compute maximally similar responses for given
+  #' category and dimension
+  #' 
+  #' @param i_cat category value
+  #' @param i_dim dimension value
+  #' @param l_tbl_lookup tbl df containing lookup table with
+  #' grid of possible response values on both dimensions
+  #' @param l_tbl_exemplars tbl df with all exemplars encountered
+  #' during category learning
+  #' @return tbl df with maximally similar responses for all cues
+  #'   
   # iterate over all cues from the given dimension
   i_cue <- seq(1, nrow(l_tbl_exemplars[[i_cat]]), by = 1)
   map(
@@ -80,12 +94,21 @@ max_sim_responses <- function(i_cat, i_dim, l_tbl_lookup, l_tbl_exemplars) {
   ) %>% reduce(rbind)
 }
 
-
-
 max_sim_response <- function(
     i_cue, i_cat, i_dim, l_tbl_lookup, l_tbl_exemplars 
 ) {
-  
+  #' @description compute maximally similar response 
+  #' for given category, dimension, and cue
+  #' 
+  #' @param i_cue cue value
+  #' @param i_cat category value
+  #' @param i_dim dimension value
+  #' @param l_tbl_lookup tbl df containing lookup table with
+  #' grid of possible response values on both dimensions
+  #' @param l_tbl_exemplars tbl df with all exemplars encountered
+  #' during category learning
+  #' @return one row tbl df with maximally similar response
+  #' 
   cue <- l_tbl_exemplars[[i_cat]][i_cue, i_dim] %>% as_vector()
   # then compute the similarities to all exemplars from all available values on the grid
   rows_selected <- as.logical(l_tbl_lookup[[i_cat]][, i_dim] == cue)
