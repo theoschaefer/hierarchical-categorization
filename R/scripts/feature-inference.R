@@ -10,11 +10,14 @@ library(loo)
 utils_loc <- c("R/utils/plotting-utils.R", "R/utils/utils.R")
 walk(utils_loc, source)
 
+
+
 # Load Data and Preprocess Them -------------------------------------------
 
 tbl_both <- readRDS(file = "data/infpro_task-cat_beh/tbl_both.RDS")
 tbl_train <- readRDS(file = "data/infpro_task-cat_beh/tbl_train.RDS")
 tbl_transfer <- readRDS(file = "data/infpro_task-cat_beh/tbl_transfer.RDS")
+
 
 # params to revert back to untransformed space
 mean_d1i <- mean(tbl_both$d1i)
@@ -33,6 +36,13 @@ m_gcm <- readRDS(file_loc_gcm)
 m_pt <- readRDS(file_loc_gaussian)
 post_c <- m_gcm$draws(variables = "c", format = "df") %>% as_tibble()
 post_pts <- m_pt$draws(variables = c("mu1", "mu2"), format = "df")
+
+
+tbl_train %>% group_by(participant, d1i, d2i, category) %>%
+  count()
+# all category A and category B stimuli were seen 17 times during training
+# we can therefore use all distinct category exemplars only once
+# when computing similarities towards within-category exemplars as 17 cancels out
 
 # all the exemplars observed during training that can be referred to in memory
 l_tbl_exemplars <- tbl_train %>% filter(participant == p_id) %>%
@@ -66,8 +76,10 @@ l_closest <- pmap(
   l_tbl_exemplars = l_tbl_exemplars
 )
 tbl_closest <- reduce(l_closest, rbind)
+tbl_closest$d1i_z * sd_d1i + mean_d1i
 
-max_sim_responses <- function(i_cat, i_dim, l_tbl_lookup, l_tbl_exemplars) {
+
+max_sim_responses <- function(i_cat, i_dim, l_tbl_lookup, l_tbl_exemplars, l_tbl_cues = NULL) {
   #' iterates over max_sim_response for all possible cue values
   #' on the given dimension
   #' 
@@ -83,19 +95,22 @@ max_sim_responses <- function(i_cat, i_dim, l_tbl_lookup, l_tbl_exemplars) {
   #' @return tbl df with maximally similar responses for all cues
   #'   
   # iterate over all cues from the given dimension
-  i_cue <- seq(1, nrow(l_tbl_exemplars[[i_cat]]), by = 1)
+  if (!is.null(l_tbl_cues)) l_tbl_range <- l_tbl_cues
+  if (is.null(l_tbl_cues)) l_tbl_range <- l_tbl_exemplars
+  i_cue <- seq(1, nrow(l_tbl_range[[i_cat]]), by = 1)
   map(
     i_cue, 
     max_sim_response,
     l_tbl_lookup = l_tbl_lookup,
     l_tbl_exemplars = l_tbl_exemplars,
     i_cat = i_cat,
-    i_dim = i_dim
+    i_dim = i_dim,
+    l_tbl_cues = l_tbl_cues
   ) %>% reduce(rbind)
 }
 
 max_sim_response <- function(
-    i_cue, i_cat, i_dim, l_tbl_lookup, l_tbl_exemplars 
+    i_cue, i_cat, i_dim, l_tbl_lookup, l_tbl_exemplars, l_tbl_cues = NULL
 ) {
   #' @description compute maximally similar response 
   #' for given category, dimension, and cue
@@ -109,7 +124,11 @@ max_sim_response <- function(
   #' during category learning
   #' @return one row tbl df with maximally similar response
   #' 
-  cue <- l_tbl_exemplars[[i_cat]][i_cue, i_dim] %>% as_vector()
+  if (!is.null(l_tbl_cues)) {
+    cue = l_tbl_cues[[i_cat]][i_cue, i_dim] %>% as_vector()
+  } else {
+    cue <- l_tbl_exemplars[[i_cat]][i_cue, i_dim] %>% as_vector()
+  }
   # then compute the similarities to all exemplars from all available values on the grid
   rows_selected <- as.logical(l_tbl_lookup[[i_cat]][, i_dim] == cue)
   grid_vals <- l_tbl_lookup[[i_cat]][rows_selected, ]
@@ -129,5 +148,80 @@ max_sim_response <- function(
 }
 
 
+varied_cues <- function(tbl_df) {
+  #' @description cross cue-values from one dimension with fine grid
+  #' of values from other dimension
+  #' 
+  #' @param tbl_df tbl df with unique cue values from 1D and NAs on other dimension
+  #' @return tbl df with seen cues crossed with fine grid from other dimension
+  #' 
+  mask <- which(!is.na(tbl_df[1,])) %>% as_vector()
+  tbl_df_filtered <- tbl_df[, mask]
+  dim_cued <- names(tbl_df_filtered)[2]
+  if (dim_cued == "d1i_z") dim_response = "d2i_z"
+  if (dim_cued == "d2i_z") dim_response = "d1i_z"
+  
+  tbl_cross <- crossing(
+    dim_cued = c(unique(tbl_df_filtered[, dim_cued]) %>% as_vector(), seq(min(tbl_df_filtered[, dim_cued]), max(tbl_df_filtered[, dim_cued]), by = .1)),
+    dim_response = seq(-1.5, 1.5, by = .1)
+  )
+  names(tbl_cross) <- c(dim_cued, dim_response)
+  return(tbl_cross)
+}
 
+
+# TODOs
+# exemplar list with elements for each of the two categories with tbl_dfs and cols category, d1i_z, d2i_z
+# lookup list with fine-grained grid for every cue on each dimension
+
+tbl_completion_prep <- read_csv(file = "data/infpro_task-cat_beh/sub-all_task-inf_beh-distances.csv")
+cols_required <- c("participant", "category", "rep", "cuedim", "cue_val", "respdim", "resp_i")
+tbl_completion <- tbl_completion_prep[, cols_required] %>%
+  group_by(participant, category, cuedim, respdim, cue_val, rep) %>%
+  mutate(rwn = row_number(resp_i)) %>%
+  filter(rwn == 1) %>% ungroup()
+
+
+
+l_tbl_completion_true <- tbl_completion %>%
+  mutate(
+    cue_val_dupl = cue_val,
+    cuedim_dupl = cuedim
+  ) %>%
+  pivot_wider(
+    id_cols = c(participant, category, cuedim_dupl, cue_val_dupl, respdim, rep, resp_i),
+    names_from = cuedim, values_from = cue_val, names_glue = "{cuedim}_{.value}"
+  ) %>%
+  mutate(
+    d1i_z = (`1_cue_val` - mean_d1i) / sd_d1i, 
+    d2i_z = (`2_cue_val` - mean_d2i) / sd_d2i,
+  ) %>% 
+  filter(participant == p_id) %>%
+  select(-c(
+    participant, cuedim_dupl, cue_val_dupl, respdim, 
+    rep, resp_i, `1_cue_val`, `2_cue_val`
+  )) %>% 
+  group_by(category, d1i_z, d2i_z) %>%
+  count() %>% select(-n) %>%
+  split(.$category)
+
+
+
+# here, just expand the dimension that was not varied as a grid for a given participant
+l_tbl_lookup <- map(l_tbl_completion_true, varied_cues)
+l_tbl_cues <- l_tbl_completion_true
+
+
+max_sim_responses(
+  i_cat, i_dim, l_tbl_lookup, l_tbl_exemplars, l_tbl_cues = l_tbl_cues
+)
+tbl_cat_dim <- crossing(i_cat = c("A", "B"), i_dim = names(l_tbl_lookup$A)[1])
+
+l_closest <- pmap(
+  tbl_cat_dim, 
+  max_sim_responses, 
+  l_tbl_lookup = l_tbl_lookup,
+  l_tbl_exemplars = l_tbl_exemplars,
+  l_tbl_cues = l_tbl_cues
+)
 
