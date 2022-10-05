@@ -188,11 +188,9 @@ tbl_completion <- tbl_completion_prep[, cols_required] %>%
 
 
 
-model_based_inference_responses <- function(tbl_completion, p_id) {
-  
-
-  
-  
+load_parameter_posteriors <- function(p_id) {
+  #' @description load posterior samples from gcm and gaussian nb for one participant
+  #'
   file_loc_gcm <- str_c("data/infpro_task-cat_beh/models/gcm-model-", p_id, ".RDS")
   file_loc_gaussian <- str_c(
     "data/infpro_task-cat_beh/models/gaussian-model-", p_id, ".RDS"
@@ -202,12 +200,37 @@ model_based_inference_responses <- function(tbl_completion, p_id) {
   post_c <- m_gcm$draws(variables = "c", format = "df") %>% as_tibble()
   post_pts <- m_pt$draws(variables = c("mu1", "mu2"), format = "df")
   
+  return(list(gcm = post_c, gaussian = post_pts))
+}
+
+
+model_based_inference_responses <- function(tbl_completion, tbl_train, p_id) {
+  #' model-based inferences given gcm model posteriors
+  #' 
+  #' @description computes inference responses that maximize within-category
+  #' similarity given posterior samples from c parameter of gcm
+  #' 
+  #' @param tbl_completion empirical completion data
+  #' @param tbl_train empirical category learning data from training
+  #' @param p_id participant id
+
+  #' @return list containing tbl dfs with maximally similar responses
+  #' for all categories and cues
+  #'  
   
-  l_tbl_completion_true <- tbl_completion %>%
-    mutate(
-      cue_val_dupl = cue_val,
-      cuedim_dupl = cuedim
-    ) %>%
+  # all the exemplars observed during training that can be referred to in memory
+  l_tbl_exemplars <- tbl_train %>% filter(participant == p_id) %>%
+    group_by(category, d1i_z, d2i_z) %>%
+    count() %>% select(-n) %>%
+    split(.$category)
+
+  # load posterior samples
+  l_posteriors <- load_parameter_posteriors(p_id)
+  post_c <- l_posteriors$gcm
+  
+  # get unique inference cues and bring them in format to compute model-based responses
+  l_tbl_cues <- tbl_completion %>%
+    mutate(cue_val_dupl = cue_val, cuedim_dupl = cuedim) %>%
     pivot_wider(
       id_cols = c(participant, category, cuedim_dupl, cue_val_dupl, respdim, rep, resp_i),
       names_from = cuedim, values_from = cue_val, names_glue = "{cuedim}_{.value}"
@@ -225,22 +248,21 @@ model_based_inference_responses <- function(tbl_completion, p_id) {
     count() %>% select(-n) %>%
     split(.$category)
   
-  
-  
-  # here, just expand the dimension that was not varied as a grid for a given participant
-  l_tbl_lookup <- map(l_tbl_completion_true, varied_cues)
-  l_tbl_cues <- l_tbl_completion_true
-  
+  # expand the not-varied dimension as a grid for a given participant
+  l_tbl_lookup <- map(l_tbl_cues, varied_cues)
+
   tbl_cat_dim <- crossing(i_cat = c("A", "B"), i_dim = names(l_tbl_lookup$A)[1])
   
   l_closest <- pmap(
     tbl_cat_dim, 
     max_sim_responses, 
+    post_c = post_c,
     l_tbl_lookup = l_tbl_lookup,
     l_tbl_exemplars = l_tbl_exemplars,
     l_tbl_cues = l_tbl_cues
   )
   
+  return(l_closest)
   
 }
 
