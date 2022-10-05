@@ -79,7 +79,7 @@ tbl_closest <- reduce(l_closest, rbind)
 tbl_closest$d1i_z * sd_d1i + mean_d1i
 
 
-max_sim_responses <- function(i_cat, i_dim, l_tbl_lookup, l_tbl_exemplars, l_tbl_cues = NULL) {
+max_sim_responses <- function(i_cat, i_dim, post_c, l_tbl_lookup, l_tbl_exemplars, l_tbl_cues = NULL) {
   #' iterates over max_sim_response for all possible cue values
   #' on the given dimension
   #' 
@@ -88,10 +88,14 @@ max_sim_responses <- function(i_cat, i_dim, l_tbl_lookup, l_tbl_exemplars, l_tbl
   #' 
   #' @param i_cat category value
   #' @param i_dim dimension value
+  #' @param post_c posterior samples of gcm c parameter
   #' @param l_tbl_lookup tbl df containing lookup table with
   #' grid of possible response values on both dimensions
   #' @param l_tbl_exemplars tbl df with all exemplars encountered
   #' during category learning
+  #' @param l_tbl_cues list containing tbl dfs with inference cues;
+  #' optional, if nothing is provided, just uses all possible cues 
+  #' from the category learning training data (all available x1s and x2s)
   #' @return tbl df with maximally similar responses for all cues
   #'   
   # iterate over all cues from the given dimension
@@ -101,6 +105,7 @@ max_sim_responses <- function(i_cat, i_dim, l_tbl_lookup, l_tbl_exemplars, l_tbl
   map(
     i_cue, 
     max_sim_response,
+    post_c = post_c,
     l_tbl_lookup = l_tbl_lookup,
     l_tbl_exemplars = l_tbl_exemplars,
     i_cat = i_cat,
@@ -110,7 +115,7 @@ max_sim_responses <- function(i_cat, i_dim, l_tbl_lookup, l_tbl_exemplars, l_tbl
 }
 
 max_sim_response <- function(
-    i_cue, i_cat, i_dim, l_tbl_lookup, l_tbl_exemplars, l_tbl_cues = NULL
+    i_cue, i_cat, i_dim, post_c, l_tbl_lookup, l_tbl_exemplars, l_tbl_cues = NULL
 ) {
   #' @description compute maximally similar response 
   #' for given category, dimension, and cue
@@ -118,10 +123,14 @@ max_sim_response <- function(
   #' @param i_cue cue value
   #' @param i_cat category value
   #' @param i_dim dimension value
+  #' @param post_c posterior samples of gcm c parameter
   #' @param l_tbl_lookup tbl df containing lookup table with
   #' grid of possible response values on both dimensions
   #' @param l_tbl_exemplars tbl df with all exemplars encountered
   #' during category learning
+  #' @param l_tbl_cues list containing tbl dfs with inference cues;
+  #' optional, if nothing is provided, just uses all possible cues 
+  #' from the category learning training data (all available x1s and x2s)
   #' @return one row tbl df with maximally similar response
   #' 
   if (!is.null(l_tbl_cues)) {
@@ -170,10 +179,6 @@ varied_cues <- function(tbl_df) {
 }
 
 
-# TODOs
-# exemplar list with elements for each of the two categories with tbl_dfs and cols category, d1i_z, d2i_z
-# lookup list with fine-grained grid for every cue on each dimension
-
 tbl_completion_prep <- read_csv(file = "data/infpro_task-cat_beh/sub-all_task-inf_beh-distances.csv")
 cols_required <- c("participant", "category", "rep", "cuedim", "cue_val", "respdim", "resp_i")
 tbl_completion <- tbl_completion_prep[, cols_required] %>%
@@ -183,45 +188,59 @@ tbl_completion <- tbl_completion_prep[, cols_required] %>%
 
 
 
-l_tbl_completion_true <- tbl_completion %>%
-  mutate(
-    cue_val_dupl = cue_val,
-    cuedim_dupl = cuedim
-  ) %>%
-  pivot_wider(
-    id_cols = c(participant, category, cuedim_dupl, cue_val_dupl, respdim, rep, resp_i),
-    names_from = cuedim, values_from = cue_val, names_glue = "{cuedim}_{.value}"
-  ) %>%
-  mutate(
-    d1i_z = (`1_cue_val` - mean_d1i) / sd_d1i, 
-    d2i_z = (`2_cue_val` - mean_d2i) / sd_d2i,
-  ) %>% 
-  filter(participant == p_id) %>%
-  select(-c(
-    participant, cuedim_dupl, cue_val_dupl, respdim, 
-    rep, resp_i, `1_cue_val`, `2_cue_val`
-  )) %>% 
-  group_by(category, d1i_z, d2i_z) %>%
-  count() %>% select(-n) %>%
-  split(.$category)
+model_based_inference_responses <- function(tbl_completion, p_id) {
+  
 
-
-
-# here, just expand the dimension that was not varied as a grid for a given participant
-l_tbl_lookup <- map(l_tbl_completion_true, varied_cues)
-l_tbl_cues <- l_tbl_completion_true
-
-
-max_sim_responses(
-  i_cat, i_dim, l_tbl_lookup, l_tbl_exemplars, l_tbl_cues = l_tbl_cues
-)
-tbl_cat_dim <- crossing(i_cat = c("A", "B"), i_dim = names(l_tbl_lookup$A)[1])
-
-l_closest <- pmap(
-  tbl_cat_dim, 
-  max_sim_responses, 
-  l_tbl_lookup = l_tbl_lookup,
-  l_tbl_exemplars = l_tbl_exemplars,
-  l_tbl_cues = l_tbl_cues
-)
+  
+  
+  file_loc_gcm <- str_c("data/infpro_task-cat_beh/models/gcm-model-", p_id, ".RDS")
+  file_loc_gaussian <- str_c(
+    "data/infpro_task-cat_beh/models/gaussian-model-", p_id, ".RDS"
+  )
+  m_gcm <- readRDS(file_loc_gcm)
+  m_pt <- readRDS(file_loc_gaussian)
+  post_c <- m_gcm$draws(variables = "c", format = "df") %>% as_tibble()
+  post_pts <- m_pt$draws(variables = c("mu1", "mu2"), format = "df")
+  
+  
+  l_tbl_completion_true <- tbl_completion %>%
+    mutate(
+      cue_val_dupl = cue_val,
+      cuedim_dupl = cuedim
+    ) %>%
+    pivot_wider(
+      id_cols = c(participant, category, cuedim_dupl, cue_val_dupl, respdim, rep, resp_i),
+      names_from = cuedim, values_from = cue_val, names_glue = "{cuedim}_{.value}"
+    ) %>%
+    mutate(
+      d1i_z = (`1_cue_val` - mean_d1i) / sd_d1i, 
+      d2i_z = (`2_cue_val` - mean_d2i) / sd_d2i,
+    ) %>% 
+    filter(participant == p_id) %>%
+    select(-c(
+      participant, cuedim_dupl, cue_val_dupl, respdim, 
+      rep, resp_i, `1_cue_val`, `2_cue_val`
+    )) %>% 
+    group_by(category, d1i_z, d2i_z) %>%
+    count() %>% select(-n) %>%
+    split(.$category)
+  
+  
+  
+  # here, just expand the dimension that was not varied as a grid for a given participant
+  l_tbl_lookup <- map(l_tbl_completion_true, varied_cues)
+  l_tbl_cues <- l_tbl_completion_true
+  
+  tbl_cat_dim <- crossing(i_cat = c("A", "B"), i_dim = names(l_tbl_lookup$A)[1])
+  
+  l_closest <- pmap(
+    tbl_cat_dim, 
+    max_sim_responses, 
+    l_tbl_lookup = l_tbl_lookup,
+    l_tbl_exemplars = l_tbl_exemplars,
+    l_tbl_cues = l_tbl_cues
+  )
+  
+  
+}
 
