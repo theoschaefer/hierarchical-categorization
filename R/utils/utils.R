@@ -173,8 +173,8 @@ data {
   array[n_stim_predict] int n_trials_predict; // n trials on test set
   array[n_stim_predict] int n_correct_predict; // n correct categorization responses on test set
   array[n_stim_predict] int cat_predict; // actual category for a given stimulus
-  array[n_stim_predict, n_cat_predict] real<lower=0> d1_predict;
-  array[n_stim_predict, n_cat_predict] real<lower=0> d2_predict;
+  array[n_stim_predict, n_cat] real<lower=0> d1_predict;
+  array[n_stim_predict, n_cat] real<lower=0> d2_predict;
   
 }
 
@@ -215,7 +215,7 @@ model {
 
 generated quantities {
   array[n_stim_predict] real log_lik_pred;
-  array[n_stim_predict, n_cat_predict] real <lower=0,upper=1> s_predict;
+  array[n_stim_predict, n_cat] real <lower=0,upper=1> s_predict;
   array[n_stim_predict, n_cat] real <lower=0> sim_bs_predict;
   array[n_stim_predict] real <lower=0,upper=1> theta_predict;
 
@@ -224,7 +224,7 @@ generated quantities {
   for (i in 1:n_stim_predict){
     for (k in 1:n_cat) {
       //sumsim_predict[i, k] = 0;
-      s_predict[i, k] = exp(-square(c)*(.5*square(d1_predict)+(.5)*square(d2_predict[i, k])));
+      s_predict[i, k] = exp(-square(c)*(.5*square(d1_predict[i,k])+(.5)*square(d2_predict[i,k])));
       sim_bs_predict[i, k] = s_predict[i,k] * bs[k];
     }
     theta_predict[i] = sim_bs_predict[i, cat[i]] / sum(sim_bs_predict[i, ]);
