@@ -256,7 +256,8 @@ saveRDS(tbl_weights, file = "data/infpro_task-cat_beh/model-weights.rds")
 
 # Distribution of Model Parameters ----------------------------------------
 
-search_words <- c("gcm-summary", "gaussian-summary", "multi-model-summary")[1:2]
+# search_words <- c("gcm-summary", "gaussian-summary", "multi-model-summary")[1:2]
+search_words <- c("gcm-summary", "prototype-summary", "gaussian-summary", "multi-model-summary")[1:2]
 model_dir <- dir("data/infpro_task-cat_beh/models/")
 path_summary <- map(search_words, ~ str_c("data/infpro_task-cat_beh/models/", model_dir[startsWith(model_dir, .x)]))
 
@@ -274,9 +275,23 @@ map(l_summary_gcm, ~ .x[str_starts(.x$variable, "b|c"), ]) %>%
     y = "Nr. Participants"
   )
 
+# prototype
+l_summary_prototype <- map(path_summary[[2]], readRDS)
+# participants have a response bias for categories 1 and 2 (i.e., the target categories)
+map(l_summary_prototype, ~ .x[str_starts(.x$variable, "b|c"), ]) %>%
+  reduce(rbind) %>%
+  ggplot(aes(mean)) +
+  geom_histogram(fill = "#66CCFF", color = "white") +
+  facet_wrap(~ variable, scales = "free") +
+  theme_bw() +
+  labs(
+    x = "Mean Parameter",
+    y = "Nr. Participants"
+  )
+
 # 1D Gaussian
 
-l_summary_gaussian <- map(path_summary[[2]], readRDS)
+l_summary_gaussian <- map(path_summary[[3]], readRDS)
 tbl_summaries <- l_summary_gaussian %>% reduce(rbind)
 mean_representation <- function(cat, tbl_summary){
   var1 <- str_c("mu1[", cat, "]")
@@ -358,3 +373,4 @@ tbl_biases %>%
   geom_point() +
   facet_wrap(~ variable) +
   theme_bw()
+
