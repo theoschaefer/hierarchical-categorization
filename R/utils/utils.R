@@ -190,19 +190,13 @@ transformed parameters {
   array[n_stim, n_cat] real <lower=0> sim_bs;
   array[n_stim] real <lower=0,upper=1> theta;
 
-  
   // Similarities
-  for (i in 1:n_stim){
+  for (i in 1:n_stim) {
     for (k in 1:n_cat) {
-      // sim_bs[i, k] = 0;
       s[i, k] = exp(-square(c)*(.5*square(d1[i, k])+(.5)*square(d2[i, k])));
       sim_bs[i, k] = s[i,k] * bs[k];
     }
     theta[i] = sim_bs[i, cat[i]] / sum(sim_bs[i, ]);
-    
-    //for (j in 1:n_stim){
-      //s[i, j] = exp(-square(c)*(w*square(d1[i, j])+(1-w)*square(d2[i, j])));
-    //}
   }
 }
 
@@ -221,13 +215,12 @@ generated quantities {
 
 
   // Similarities
-  for (i in 1:n_stim_predict){
+  for (i in 1:n_stim_predict) {
     for (k in 1:n_cat) {
-      //sumsim_predict[i, k] = 0;
       s_predict[i, k] = exp(-square(c)*(.5*square(d1_predict[i,k])+(.5)*square(d2_predict[i,k])));
       sim_bs_predict[i, k] = s_predict[i,k] * bs[k];
     }
-    theta_predict[i] = sim_bs_predict[i, cat[i]] / sum(sim_bs_predict[i, ]);
+    theta_predict[i] = sim_bs_predict[i, cat_predict[i]] / sum(sim_bs_predict[i, ]);
     log_lik_pred[i] = binomial_lpmf(n_correct_predict[i] | n_trials_predict[i], theta_predict[i]);
   }
 
@@ -741,13 +734,13 @@ bayesian_prototype <- function(tbl_participant, l_stan_params, mod_prototype) {
     
   # Save prototype distances as matrices
   m_distances_x1_train <- tbl_prototype_dist_train %>% 
-    select(starts_with('dist1_z')) %>% as.matrix()
+    select(starts_with('dist1_z')) %>% as.matrix() %>% unname()
   m_distances_x2_train <- tbl_prototype_dist_train %>% 
-    select(starts_with('dist2_z')) %>% as.matrix()
+    select(starts_with('dist2_z')) %>% as.matrix() %>% unname()
   m_distances_x1_transfer <- tbl_prototype_dist_transfer %>% 
-    select(starts_with('dist1_z')) %>% as.matrix()
+    select(starts_with('dist1_z')) %>% as.matrix() %>% unname()
   m_distances_x2_transfer <- tbl_prototype_dist_transfer %>% 
-    select(starts_with('dist2_z')) %>% as.matrix()
+    select(starts_with('dist2_z')) %>% as.matrix() %>% unname()
   
   
   l_data <- list(

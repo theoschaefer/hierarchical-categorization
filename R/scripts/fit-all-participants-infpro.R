@@ -235,7 +235,7 @@ map(l_loo_multi, "error") %>% reduce(c)
 safe_weights <- safely(loo_model_weights)
 
 l_loo_weights <- pmap(
-  list(l_gcm_results, l_gaussian_results), #, l_multi_results 
+  list(l_gcm_results, l_prototype_results), # l_gaussian_results, l_multi_results 
   ~ safe_weights(list(..1, ..2)), #, , ..3
   method = "stacking"
 )
