@@ -1004,8 +1004,66 @@ model_based_inference_responses <- function(tbl_completion, tbl_train, p_id) {
     l_tbl_exemplars = l_tbl_exemplars,
     l_tbl_cues = l_tbl_cues
   )
+  names(l_closest) <- tbl_cat_dim$i_cat
   
   return(l_closest)
+  
+}
+
+distance_from_model_based_inferene <- function(p_id, tbl_completion, tbl_train) {
+  #' compute gcm-based responses and compare them to empirical responses
+  #' 
+  #' @description computes for every 1D inference cue what response GCM would give
+  #' 
+  #' @param p_id participant
+  #' @param tbl_completion tbl df with empirical inference data
+  #' @param tbl_train tbl df with category learning data from training session
+  #' @return tbl df with distance as additional column
+  #'
+  l_model_based <- model_based_inference_responses(tbl_completion, tbl_train, p_id)
+  add_category <- function(tbl_df, cat) {
+    tbl_df$category <- cat
+    return(tbl_df)
+  }
+  # transform back into original 2D space
+  tbl_model_based <- map2(l_model_based, names(l_model_based), add_category) %>%
+    reduce(rbind) %>%
+    mutate(
+      d1i = d1i_z * sd_d1i + mean_d1i, 
+      d2i = d2i_z * sd_d2i + mean_d2i,
+      cuedim = c(1, 2)[as.integer(cue_dim == "d2i_z") + 1],
+      participant = p_id
+    ) %>%
+    select(-c(d1i_z, d2i_z, cue_dim)) %>%
+    relocate(cuedim, .before = d1i) %>%
+    relocate(participant, .before = cuedim)
+  # select right cue value for given row
+  tbl_model_based$cue_val <- pmap_dbl(
+    tbl_model_based[, c("d1i", "d2i", "cuedim")], ~ c(..1, ..2)[..3]
+  )
+  # join gcm-based responses back into empirical tbl df
+  tbl_gcm <- tbl_model_based %>% 
+    left_join(tbl_completion, by = c("participant", "category", "cuedim", "cue_val"))
+  # compute distance from model-based response
+  tbl_gcm$distance <- pmap_dbl(
+    tbl_gcm[, c("d1i", "d2i", "respdim", "resp_i")],
+    ~ c(..1, ..2)[..3] - ..4
+  )
+  # plot and save histograms by category
+  pl <- ggplot(
+    tbl_gcm %>% mutate(category = str_c("Category ", category)), aes(distance)) +
+    geom_histogram(color = "white", fill = "#66CCFF", bins = 15) +
+    facet_wrap(~ category) +
+    theme_bw() +
+    labs(
+      x = "Distance from GCM-Based Response", 
+      y = "Nr. Responses",
+      title = str_c("Participant = ", p_id)
+    )
+  f_name_pl <- str_c("data/infpro_task-cat_beh/figures/ds-gcm-based-p-", p_id, ".png")
+  save_my_png(pl, f_name_pl, c(4, 3))
+  
+  return(tbl_gcm)
   
 }
 
