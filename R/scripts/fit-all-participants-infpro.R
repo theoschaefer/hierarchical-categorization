@@ -21,8 +21,10 @@ if (!dir.exists("data/infpro_task-cat_beh/figures/")) dir.create("data/infpro_ta
 
 file_loc_train <- "data/infpro_task-cat_beh/infpro_task-cat_beh.csv"
 file_loc_transfer <- "data/infpro_task-cat_beh/infpro_task-cat2_beh.csv"
-tbl_train <- read_csv(file_loc_train, show_col_types = FALSE)
-tbl_transfer <- read_csv(file_loc_transfer, show_col_types = FALSE)
+# tbl_train <- read_csv(file_loc_train, show_col_types = FALSE)
+# tbl_transfer <- read_csv(file_loc_transfer, show_col_types = FALSE)
+tbl_train <- read_csv(file_loc_train)
+tbl_transfer <- read_csv(file_loc_transfer)
 colnames(tbl_transfer) <- str_replace(colnames(tbl_transfer), "cat2", "cat")
 tbl_train$session <- "train"
 tbl_transfer$session <- "transfer"
@@ -154,6 +156,32 @@ l_loo_gcm <- readRDS(file = "data/infpro_task-cat_beh/gcm-loos.RDS")
 l_gcm_results <- map(l_loo_gcm, "result")
 # not ok
 map(l_loo_gcm, "error") %>% reduce(c)
+
+
+# Prototype ---------------------------------------------------------------------
+
+tbl_both_agg <- rbind(tbl_train_agg, tbl_transfer_agg)
+l_tbl_both_agg <- split(tbl_both_agg, tbl_both_agg$participant)
+
+stan_prototype <- write_prototype_stan_file_predict()
+mod_prototype <- cmdstan_model(stan_prototype)
+safe_prototype <- safely(bayesian_prototype)
+
+options(warn = -1)
+l_loo_prototype <- furrr::future_map(
+  l_tbl_both_agg, safe_prototype, 
+  l_stan_params = l_stan_params, 
+  mod_prototype = mod_prototype, 
+  .progress = TRUE
+)
+options(warn = 0)
+saveRDS(l_loo_prototype, file = "data/infpro_task-cat_beh/prototype-loos.RDS")
+l_loo_prototype <- readRDS(file = "data/infpro_task-cat_beh/prototype-loos.RDS")
+
+# ok
+l_prototype_results <- map(l_loo_prototype, "result")
+# not ok
+map(l_loo_prototype, "error") %>% reduce(c)
 
 
 # Gaussian ----------------------------------------------------------------
