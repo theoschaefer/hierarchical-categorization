@@ -44,7 +44,9 @@ tbl_train %>% group_by(participant, d1i, d2i, category) %>%
 # when computing similarities towards within-category exemplars as 17 cancels out
 
 # all the exemplars observed during training that can be referred to in memory
-l_tbl_exemplars <- tbl_train %>% filter(participant == p_id) %>%
+l_tbl_exemplars <- tbl_train %>% 
+  mutate(category = fct_recode(category, B = "C", c = "B")) %>%
+  filter(participant == p_id) %>%
   group_by(category, d1i_z, d2i_z) %>%
   count() %>% select(-n) %>%
   split(.$category)
@@ -95,8 +97,8 @@ tbl_completion <- tbl_completion_prep[, cols_required] %>%
   select(-representation)
 
 n_workers_available <- parallel::detectCores()
-plan(multisession, workers = n_workers_available / 2)
-safe_distances <- safely(distance_from_model_based_inferene)
+plan(multisession, workers = n_workers_available - 2)
+safe_distances <- safely(distance_from_model_based_inference)
 
 p_ids <- sort(unique(tbl_completion_prep$participant))
 l_results <- future_map(
@@ -112,14 +114,44 @@ l_gcm_results <- map(l_results, "result")
 # not ok
 map(l_results, "error") %>% reduce(c)
 
-tbl_gcm_results <- l_gcm_results %>% reduce(rbind)
+tbl_gcm_results <- map(l_gcm_results, "tbl_empirical") %>% reduce(rbind)
 tbl_gcm_results$distance_pt_phys <- tbl_completion$distance
 tbl_gcm_results %>% 
   mutate(distance = abs(distance)) %>%
   rename(GCM = distance, `Physical PT` = distance_pt_phys) %>%
   pivot_longer(c(GCM, `Physical PT`)) %>% 
   ggplot(aes(value, group = name)) +
-  geom_freqpoly(aes(color = name)) +
+  geom_density(aes(color = name)) +
   theme_bw() +
-  scale_color_brewer(palette = "Set1", name = "Distance From") +
+  scale_color_brewer(palette = "Set1", name = "Model") +
+  labs(x = "Distance", y = "Density")
+
+tbl_gcm_results %>% 
+  rename(GCM = distance) %>%
+  ggplot(aes(GCM)) +
+  geom_density() +
+  theme_bw() +
+  scale_color_brewer(palette = "Set1", name = "Model") +
   labs(x = "Distance", y = "Nr. Responses")
+
+tbl_lookup <- map(l_gcm_results, "tbl_lookup") %>% reduce(rbind)
+
+tbl_lookup_p123 <- tbl_lookup %>% filter(participant == 123)
+ggplot(tbl_lookup_p123 %>% mutate(category = str_c("Category = ", category)), aes(resp_i, d2i)) +
+  geom_tile(aes(fill = distance)) +
+  facet_wrap(~ category) +
+  scale_fill_gradient2(name = "Distance", low = "#FF6666", high = "#339966") +
+  scale_x_continuous(breaks = seq(0, 10, by = 2)) +
+  scale_y_continuous(breaks = seq(0, 10, by = 2)) +
+  theme_bw() +
+  labs(x = "Response", y = "Cue")
+
+tbl_lookup_p126 <- tbl_lookup %>% filter(participant == 126)
+ggplot(tbl_lookup_p126 %>% mutate(category = str_c("Category = ", category)), aes(d1i, resp_i)) +
+  geom_tile(aes(fill = distance)) +
+  facet_wrap(~ category) +
+  scale_fill_gradient2(name = "Distance", low = "#FF6666", high = "#339966") +
+  scale_y_continuous(breaks = seq(0, 10, by = 2)) +
+  scale_x_continuous(breaks = seq(0, 10, by = 2)) +
+  theme_bw() +
+  labs(y = "Response", x = "Cue")

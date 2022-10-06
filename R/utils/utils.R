@@ -776,7 +776,7 @@ bayesian_gaussian_multi_bayes <- function(
   pars_interest_no_theta <- c("mu", names_sigmas_keep, "cat_prior")
   pars_interest_no_theta_idx <- str_replace(pars_interest_no_theta, "\\[", "\\\\[")
   
-
+  
   names_thetas <- names(tbl_draws)[startsWith(names(tbl_draws), "theta")]
   tbl_participant_agg$pred_theta <- colMeans(tbl_draws[, names_thetas])
   tbl_participant_agg$pred_difference <- tbl_participant_agg$pred_theta - tbl_participant_agg$prop_responses
@@ -811,7 +811,7 @@ bayesian_gaussian_multi_bayes <- function(
   pl_posteriors <- plot_posteriors(tbl_posterior, tbl_label, n_cols = 5)
   pl_pred_uncertainty <- plot_proportion_responses(tbl_participant_agg, participant_sample, color_pred_difference = TRUE)
   
-
+  
   
   # save plots
   c_names <- function(x, y) str_c("data/infpro_task-cat_beh/model-plots/", x, y, ".png")
@@ -962,7 +962,9 @@ model_based_inference_responses <- function(tbl_completion, tbl_train, p_id) {
   #'  
   
   # all the exemplars observed during training that can be referred to in memory
-  l_tbl_exemplars <- tbl_train %>% filter(participant == p_id) %>%
+  l_tbl_exemplars <- tbl_train %>% 
+    mutate(category = fct_recode(category, B = "C", c = "B")) %>%
+    filter(participant == p_id) %>%
     group_by(category, d1i_z, d2i_z) %>%
     count() %>% select(-n) %>%
     split(.$category)
@@ -1010,7 +1012,7 @@ model_based_inference_responses <- function(tbl_completion, tbl_train, p_id) {
   
 }
 
-distance_from_model_based_inferene <- function(p_id, tbl_completion, tbl_train) {
+distance_from_model_based_inference <- function(p_id, tbl_completion, tbl_train) {
   #' compute gcm-based responses and compare them to empirical responses
   #' 
   #' @description computes for every 1D inference cue what response GCM would give
@@ -1041,6 +1043,8 @@ distance_from_model_based_inferene <- function(p_id, tbl_completion, tbl_train) 
   tbl_model_based$cue_val <- pmap_dbl(
     tbl_model_based[, c("d1i", "d2i", "cuedim")], ~ c(..1, ..2)[..3]
   )
+  
+  # EMPIRICAL
   # join gcm-based responses back into empirical tbl df
   tbl_gcm <- tbl_model_based %>% 
     left_join(tbl_completion, by = c("participant", "category", "cuedim", "cue_val"))
@@ -1049,6 +1053,15 @@ distance_from_model_based_inferene <- function(p_id, tbl_completion, tbl_train) 
     tbl_gcm[, c("d1i", "d2i", "respdim", "resp_i")],
     ~ c(..1, ..2)[..3] - ..4
   )
+  
+  # LOOKUP TABLE
+  tbl_lookup <- lookup_table_possible_responses(tbl_completion, tbl_model_based, p_id)
+  # compute distance from model-based response
+  tbl_lookup$distance <- pmap_dbl(
+    tbl_lookup[, c("d1i", "d2i", "respdim", "resp_i")],
+    ~ c(..1, ..2)[..3] - ..4
+  )
+  
   # plot and save histograms by category
   pl <- ggplot(
     tbl_gcm %>% mutate(category = str_c("Category ", category)), aes(distance)) +
@@ -1063,7 +1076,41 @@ distance_from_model_based_inferene <- function(p_id, tbl_completion, tbl_train) 
   f_name_pl <- str_c("data/infpro_task-cat_beh/figures/ds-gcm-based-p-", p_id, ".png")
   save_my_png(pl, f_name_pl, c(4, 3))
   
-  return(tbl_gcm)
+  return(list(tbl_empirical = tbl_gcm, tbl_lookup = tbl_lookup))
   
 }
+
+
+
+lookup_table_possible_responses <- function(tbl_completion, tbl_model_based, p_id) {
+  #' expand a grid on all possible completion responses for a given participant
+  #' 
+  #' @description joins fine grid of possible response values (.1 steps)
+  #' for all cue values
+  #' 
+  #' @param tbl_completion tbl df with empirical inference data
+  #' @param tbl_model_based tbl df with model-based responses
+  #' @param p_id participant id
+  #' @return tbl df with distance as additional column
+  #'
+  tbl_cues <- tbl_completion %>% 
+    filter(participant == p_id) %>%
+    group_by(participant, category, cuedim, cue_val, respdim) %>%
+    count() %>% select(cue_val) %>% ungroup()
+  tbl_design <- crossing(
+    cue_val = unique(tbl_cues$cue_val), resp_i = seq(0, 10, by = .1)
+  )
+  tbl_design <- tbl_design %>% left_join(tbl_cues, by = "cue_val")
+  tbl_lookup <- tbl_model_based %>% 
+    left_join(tbl_design, by = c("participant", "category", "cuedim", "cue_val"))
+  
+  return(tbl_lookup)
+}
+
+
+
+
+
+
+
 
