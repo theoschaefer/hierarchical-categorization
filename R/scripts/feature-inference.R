@@ -113,6 +113,7 @@ l_results <- future_map(
 l_gcm_results <- map(l_results, "result")
 # not ok
 map(l_results, "error") %>% reduce(c)
+saveRDS(l_gcm_results, file = "data/infpro_task-cat_beh/inference-gcm-based.RDS")
 
 tbl_gcm_results <- map(l_gcm_results, "tbl_empirical") %>% reduce(rbind)
 tbl_gcm_results$distance_pt_phys <- tbl_completion$distance
@@ -132,26 +133,36 @@ tbl_gcm_results %>%
   geom_density() +
   theme_bw() +
   scale_color_brewer(palette = "Set1", name = "Model") +
-  labs(x = "Distance", y = "Nr. Responses")
+  labs(x = "Distance", y = "Density")
 
 tbl_lookup <- map(l_gcm_results, "tbl_lookup") %>% reduce(rbind)
 
-tbl_lookup_p123 <- tbl_lookup %>% filter(participant == 123)
-ggplot(tbl_lookup_p123 %>% mutate(category = str_c("Category = ", category)), aes(resp_i, d2i)) +
-  geom_tile(aes(fill = distance)) +
-  facet_wrap(~ category) +
+# plot heat maps for some exemplary participants
+# cue x1
+ggplot(
+  tbl_lookup %>% 
+    filter(participant > 140 & participant %% 2 == 0) %>%
+    mutate(category = str_c("Category = ", category))
+  , aes(d1i, resp_i)
+) + geom_tile(aes(fill = distance)) +
+  facet_grid(participant ~ category) +
+  scale_fill_gradient2(name = "Distance", low = "#FF6666", high = "#339966") +
+  scale_x_continuous(breaks = seq(0, 10, by = 2)) +
+  scale_y_continuous(breaks = seq(0, 10, by = 2)) +
+  theme_bw() +
+  labs(x = "Cue", y = "Response")
+
+
+# cue x2
+ggplot(
+  tbl_lookup %>% 
+    filter(participant > 140 & participant %% 2 == 1) %>%
+    mutate(category = str_c("Category = ", category))
+  , aes(resp_i, d2i)
+  ) + geom_tile(aes(fill = distance)) +
+  facet_grid(participant ~ category) +
   scale_fill_gradient2(name = "Distance", low = "#FF6666", high = "#339966") +
   scale_x_continuous(breaks = seq(0, 10, by = 2)) +
   scale_y_continuous(breaks = seq(0, 10, by = 2)) +
   theme_bw() +
   labs(x = "Response", y = "Cue")
-
-tbl_lookup_p126 <- tbl_lookup %>% filter(participant == 126)
-ggplot(tbl_lookup_p126 %>% mutate(category = str_c("Category = ", category)), aes(d1i, resp_i)) +
-  geom_tile(aes(fill = distance)) +
-  facet_wrap(~ category) +
-  scale_fill_gradient2(name = "Distance", low = "#FF6666", high = "#339966") +
-  scale_y_continuous(breaks = seq(0, 10, by = 2)) +
-  scale_x_continuous(breaks = seq(0, 10, by = 2)) +
-  theme_bw() +
-  labs(y = "Response", x = "Cue")
