@@ -141,7 +141,7 @@ tbl_lookup <- map(l_gcm_results, "tbl_lookup") %>% reduce(rbind)
 # cue x1
 ggplot(
   tbl_lookup %>% 
-    filter(participant > 140 & participant %% 2 == 1) %>%
+    filter(participant > 140 & participant %% 2 == 0) %>%
     mutate(category = str_c("Category = ", category))
   , aes(d1i, resp_i)
 ) + geom_tile(aes(fill = distance)) +
@@ -150,13 +150,13 @@ ggplot(
   scale_x_continuous(breaks = seq(0, 10, by = 2)) +
   scale_y_continuous(breaks = seq(0, 10, by = 2)) +
   theme_bw() +
-  labs(x = "Response", y = "Cue")
+  labs(x = "Cue", y = "Response")
 
 
 # cue x2
 ggplot(
   tbl_lookup %>% 
-    filter(participant > 140 & participant %% 2 == 0) %>%
+    filter(participant > 140 & participant %% 2 == 1) %>%
     mutate(category = str_c("Category = ", category))
   , aes(resp_i, d2i)
   ) + geom_tile(aes(fill = distance)) +
