@@ -963,7 +963,7 @@ model_based_inference_responses <- function(tbl_completion, tbl_train, p_id) {
   
   # all the exemplars observed during training that can be referred to in memory
   l_tbl_exemplars <- tbl_train %>% 
-    mutate(category = fct_recode(category, B = "C", c = "B")) %>%
+    mutate(category = fct_recode(category, B = "C", C = "B")) %>%
     filter(participant == p_id) %>%
     group_by(category, d1i_z, d2i_z) %>%
     count() %>% select(-n) %>%
