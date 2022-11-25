@@ -22,7 +22,10 @@ mean_d1i <- mean(tbl_both$d1i)
 sd_d1i <- sd(tbl_both$d1i)
 mean_d2i <- mean(tbl_both$d2i)
 sd_d2i <- sd(tbl_both$d2i)
-l_pars <- list(mean_d1i = mean_d1i, sd_d1i = sd_d1i, mean_d2i = mean_d2i, sd_d2i = sd_d2i)
+tf <- list(
+  mean_d1i = mean_d1i, sd_d1i = sd_d1i, mean_d2i = mean_d2i, sd_d2i = sd_d2i
+)
+
 
 
 # example using category learning training stimuli ------------------------
@@ -91,7 +94,7 @@ tbl_completion_prep <- read_csv(file = "data/infpro_task-cat_beh/sub-all_task-in
 cols_required <- c(
   "participant", "category", "rep", "cuedim", "cue_val",
   "respdim", "resp_i", "representation", "distance"
-  )
+)
 tbl_completion <- tbl_completion_prep[, cols_required] %>%
   group_by(participant, category, cuedim, respdim, cue_val, rep) %>%
   filter(representation == "prototype_phys") %>% ungroup() %>%
@@ -107,7 +110,7 @@ l_results <- future_map(
   safe_distances, 
   tbl_completion = tbl_completion, 
   tbl_train = tbl_train, 
-  l_pars = l_pars,
+  l_pars_tf = l_pars_tf,
   .progress = TRUE
 )
 
