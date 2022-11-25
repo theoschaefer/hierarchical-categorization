@@ -947,7 +947,7 @@ load_parameter_posteriors <- function(p_id) {
 }
 
 
-model_based_inference_responses <- function(tbl_completion, tbl_train, p_id) {
+model_based_inference_responses <- function(tbl_completion, tbl_train, p_id, l_pars) {
   #' model-based inferences given gcm model posteriors
   #' 
   #' @description computes inference responses that maximize within-category
@@ -956,6 +956,7 @@ model_based_inference_responses <- function(tbl_completion, tbl_train, p_id) {
   #' @param tbl_completion empirical completion data
   #' @param tbl_train empirical category learning data from training
   #' @param p_id participant id
+  #' @param l_pars mean and sds in untransformed space
   
   #' @return list containing tbl dfs with maximally similar responses
   #' for all categories and cues
@@ -981,8 +982,8 @@ model_based_inference_responses <- function(tbl_completion, tbl_train, p_id) {
       names_from = cuedim, values_from = cue_val, names_glue = "{cuedim}_{.value}"
     ) %>%
     mutate(
-      d1i_z = (`1_cue_val` - mean_d1i) / sd_d1i, 
-      d2i_z = (`2_cue_val` - mean_d2i) / sd_d2i,
+      d1i_z = (`1_cue_val` - l_pars$mean_d1i) / l_pars$sd_d1i, 
+      d2i_z = (`2_cue_val` - l_pars$mean_d2i) / l_pars$sd_d2i,
     ) %>% 
     filter(participant == p_id) %>%
     select(-c(
@@ -1022,7 +1023,7 @@ distance_from_model_based_inference <- function(p_id, tbl_completion, tbl_train)
   #' @param tbl_train tbl df with category learning data from training session
   #' @return tbl df with distance as additional column
   #'
-  l_model_based <- model_based_inference_responses(tbl_completion, tbl_train, p_id)
+  l_model_based <- model_based_inference_responses(tbl_completion, tbl_train, p_id, l_pars)
   add_category <- function(tbl_df, cat) {
     tbl_df$category <- cat
     return(tbl_df)

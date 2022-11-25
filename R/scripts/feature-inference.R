@@ -22,6 +22,7 @@ mean_d1i <- mean(tbl_both$d1i)
 sd_d1i <- sd(tbl_both$d1i)
 mean_d2i <- mean(tbl_both$d2i)
 sd_d2i <- sd(tbl_both$d2i)
+l_pars <- list(mean_d1i = mean_d1i, sd_d1i = sd_d1i, mean_d2i = mean_d2i, sd_d2i = sd_d2i)
 
 
 # example using category learning training stimuli ------------------------
@@ -45,7 +46,7 @@ tbl_train %>% group_by(participant, d1i, d2i, category) %>%
 
 # all the exemplars observed during training that can be referred to in memory
 l_tbl_exemplars <- tbl_train %>% 
-  mutate(category = fct_recode(category, B = "C", c = "B")) %>%
+  mutate(category = fct_recode(category, B = "C", C = "B")) %>%
   filter(participant == p_id) %>%
   group_by(category, d1i_z, d2i_z) %>%
   count() %>% select(-n) %>%
@@ -106,6 +107,7 @@ l_results <- future_map(
   safe_distances, 
   tbl_completion = tbl_completion, 
   tbl_train = tbl_train, 
+  l_pars = l_pars,
   .progress = TRUE
 )
 
@@ -116,7 +118,19 @@ map(l_results, "error") %>% reduce(c)
 saveRDS(l_gcm_results, file = "data/infpro_task-cat_beh/inference-gcm-based.RDS")
 
 tbl_gcm_results <- map(l_gcm_results, "tbl_empirical") %>% reduce(rbind)
-tbl_gcm_results$distance_pt_phys <- tbl_completion$distance
+tbl_gcm_results <- tbl_gcm_results %>%
+  arrange(rep, participant, cue_val, cuedim)
+tbl_completion <- tbl_completion %>%
+  arrange(rep, participant, cue_val, cuedim)
+
+tbl_gcm_results <- tbl_gcm_results %>% 
+  left_join(
+    tbl_completion %>% rename(distance_pt_phys = distance) %>% select(-resp_i),
+    by = c("participant", "category", "rep", "cuedim", "cue_val", "respdim")
+    )
+
+
+
 tbl_gcm_results %>% 
   mutate(distance = abs(distance)) %>%
   rename(GCM = distance, `Physical PT` = distance_pt_phys) %>%
@@ -134,6 +148,11 @@ tbl_gcm_results %>%
   theme_bw() +
   scale_color_brewer(palette = "Set1", name = "Model") +
   labs(x = "Distance", y = "Density")
+
+ggplot(tbl_gcm_results %>% filter(category == "A"), aes(resp_i, group = cuedim)) +
+  geom_density() +
+  facet_grid(cuedim ~ cue_val)
+
 
 tbl_lookup <- map(l_gcm_results, "tbl_lookup") %>% reduce(rbind)
 
