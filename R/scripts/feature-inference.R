@@ -22,7 +22,7 @@ mean_d1i <- mean(tbl_both$d1i)
 sd_d1i <- sd(tbl_both$d1i)
 mean_d2i <- mean(tbl_both$d2i)
 sd_d2i <- sd(tbl_both$d2i)
-tf <- list(
+l_pars_tf <- list(
   mean_d1i = mean_d1i, sd_d1i = sd_d1i, mean_d2i = mean_d2i, sd_d2i = sd_d2i
 )
 
@@ -158,6 +158,7 @@ ggplot(tbl_gcm_results %>% filter(category == "A"), aes(resp_i, group = cuedim))
 
 
 tbl_lookup <- map(l_gcm_results, "tbl_lookup") %>% reduce(rbind)
+write.csv(tbl_lookup, "data/infpro_task-cat_beh/gcm-inference-distances.csv")
 
 # plot heat maps for some exemplary participants
 # cue x1
@@ -188,3 +189,17 @@ ggplot(
   scale_y_continuous(breaks = seq(0, 10, by = 2)) +
   theme_bw() +
   labs(x = "Response", y = "Cue")
+
+
+
+
+
+l_posteriors <- map(p_ids, load_parameter_posteriors)
+l_c <- map(l_posteriors, ~ .x$gcm$c)
+tbl_c <- reduce(l_c, cbind) %>% as.data.frame()
+colnames(tbl_c) <- p_ids
+tbl_c$trial_id <- 1:nrow(tbl_c)
+tbl_c %>% pivot_longer(-trial_id) %>%
+  ggplot(aes(value)) +
+  geom_histogram(color = "white", fill = "dodgerblue") +
+  facet_wrap(~ name)

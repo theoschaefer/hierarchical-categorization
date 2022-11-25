@@ -1142,7 +1142,7 @@ varied_cues <- function(tbl_df) {
 
   tbl_cross <- crossing(
     dim_cued = c(unique(tbl_df_filtered[, dim_cued]) %>% as_vector(), seq(min(tbl_df_filtered[, dim_cued]), max(tbl_df_filtered[, dim_cued]), by = .1)),
-    dim_response = seq(-1.5, 1.5, by = .1)
+    dim_response = seq(-1.5, 1.5, by = .05)
   )
   names(tbl_cross) <- c(dim_cued, dim_response)
   return(tbl_cross)
@@ -1235,7 +1235,7 @@ model_based_inference_responses <- function(tbl_completion, tbl_train, p_id, l_p
   return(l_closest)
 }
 
-distance_from_model_based_inferene <- function(p_id, tbl_completion, tbl_train, l_pars_tf) {
+distance_from_model_based_inference <- function(p_id, tbl_completion, tbl_train, l_pars_tf) {
   #' compute gcm-based responses and compare them to empirical responses
   #'
   #' @description computes for every 1D inference cue what response GCM would give
@@ -1246,7 +1246,7 @@ distance_from_model_based_inferene <- function(p_id, tbl_completion, tbl_train, 
   #' @param l_pars_tf mean and sds in untransformed space
   #' @return tbl df with distance as additional column
   #'
-  l_model_based <- model_based_inference_responses(tbl_completion, tbl_train, p_id, l_pars)
+  l_model_based <- model_based_inference_responses(tbl_completion, tbl_train, p_id, l_pars_tf)
   add_category <- function(tbl_df, cat) {
     tbl_df$category <- cat
     return(tbl_df)
@@ -1309,7 +1309,7 @@ distance_from_model_based_inferene <- function(p_id, tbl_completion, tbl_train, 
 lookup_table_possible_responses <- function(tbl_completion, tbl_model_based, p_id) {
   #' expand a grid on all possible completion responses for a given participant
   #'
-  #' @description joins fine grid of possible response values (.1 steps)
+  #' @description joins fine grid of possible response values
   #' for all cue values
   #'
   #' @param tbl_completion tbl df with empirical inference data
@@ -1324,7 +1324,7 @@ lookup_table_possible_responses <- function(tbl_completion, tbl_model_based, p_i
     select(cue_val) %>%
     ungroup()
   tbl_design <- crossing(
-    cue_val = unique(tbl_cues$cue_val), resp_i = seq(0, 10, by = .1)
+    cue_val = unique(tbl_cues$cue_val), resp_i = seq(0, 10, by = .05)
   )
   tbl_design <- tbl_design %>% left_join(tbl_cues, by = "cue_val")
   tbl_lookup <- tbl_model_based %>%
