@@ -11,23 +11,26 @@ utils_loc <- c("R/utils/plotting-utils.R", "R/utils/utils.R")
 walk(utils_loc, source)
 
 
-
 # Load Data and Preprocess Them -------------------------------------------
 
 tbl_both <- readRDS(file = "data/infpro_task-cat_beh/tbl_both.RDS")
 tbl_train <- readRDS(file = "data/infpro_task-cat_beh/tbl_train.RDS")
 tbl_transfer <- readRDS(file = "data/infpro_task-cat_beh/tbl_transfer.RDS")
 
-
 # params to revert back to untransformed space
 mean_d1i <- mean(tbl_both$d1i)
 sd_d1i <- sd(tbl_both$d1i)
 mean_d2i <- mean(tbl_both$d2i)
 sd_d2i <- sd(tbl_both$d2i)
+l_pars_tf <- list(
+  mean_d1i = mean_d1i, sd_d1i = sd_d1i, mean_d2i = mean_d2i, sd_d2i = sd_d2i
+)
 
+
+
+# example using category learning training stimuli ------------------------
 
 p_id <- 101
-
 file_loc_gcm <- str_c("data/infpro_task-cat_beh/models/gcm-model-", p_id, ".RDS")
 file_loc_gaussian <- str_c(
   "data/infpro_task-cat_beh/models/gaussian-model-", p_id, ".RDS"
@@ -45,12 +48,15 @@ tbl_train %>% group_by(participant, d1i, d2i, category) %>%
 # when computing similarities towards within-category exemplars as 17 cancels out
 
 # all the exemplars observed during training that can be referred to in memory
-l_tbl_exemplars <- tbl_train %>% filter(participant == p_id) %>%
+l_tbl_exemplars <- tbl_train %>% 
+  mutate(category = fct_recode(category, B = "C", C = "B")) %>%
+  filter(participant == p_id) %>%
   group_by(category, d1i_z, d2i_z) %>%
   count() %>% select(-n) %>%
   split(.$category)
 
-# this has to be replaced once completion data are available
+# just uses cat learn training data to get a set of inference cues
+# has to be replaced once completion data are available
 # as exemplars will contain the cue from one dimension
 # plus a fine grid over plausible category values from the second dimension
 
@@ -72,6 +78,7 @@ tbl_cat_dim <- crossing(i_cat = ids_cat, i_dim = ids_dim)
 l_closest <- pmap(
   tbl_cat_dim, 
   max_sim_responses, 
+  post_c = post_c,
   l_tbl_lookup = l_tbl_lookup,
   l_tbl_exemplars = l_tbl_exemplars
 )
@@ -80,9 +87,119 @@ tbl_closest$d1i_z * sd_d1i + mean_d1i
 
 
 
+# implementation using empirical inference data ---------------------------
+
+
 tbl_completion_prep <- read_csv(file = "data/infpro_task-cat_beh/sub-all_task-inf_beh-distances.csv")
-cols_required <- c("participant", "category", "rep", "cuedim", "cue_val", "respdim", "resp_i")
+cols_required <- c(
+  "participant", "category", "rep", "cuedim", "cue_val",
+  "respdim", "resp_i", "representation", "distance"
+)
 tbl_completion <- tbl_completion_prep[, cols_required] %>%
   group_by(participant, category, cuedim, respdim, cue_val, rep) %>%
-  mutate(rwn = row_number(resp_i)) %>%
-  filter(rwn == 1) %>% ungroup()
+  filter(representation == "prototype_phys") %>% ungroup() %>%
+  select(-representation)
+
+n_workers_available <- parallel::detectCores()
+plan(multisession, workers = n_workers_available - 2)
+safe_distances <- safely(distance_from_model_based_inference)
+
+p_ids <- sort(unique(tbl_completion_prep$participant))
+l_results <- future_map(
+  p_ids, 
+  safe_distances, 
+  tbl_completion = tbl_completion, 
+  tbl_train = tbl_train, 
+  l_pars_tf = l_pars_tf,
+  .progress = TRUE
+)
+
+# ok
+l_gcm_results <- map(l_results, "result")
+# not ok
+map(l_results, "error") %>% reduce(c)
+saveRDS(l_gcm_results, file = "data/infpro_task-cat_beh/inference-gcm-based.RDS")
+
+tbl_gcm_results <- map(l_gcm_results, "tbl_empirical") %>% reduce(rbind)
+tbl_gcm_results <- tbl_gcm_results %>%
+  arrange(rep, participant, cue_val, cuedim)
+tbl_completion <- tbl_completion %>%
+  arrange(rep, participant, cue_val, cuedim)
+
+tbl_gcm_results <- tbl_gcm_results %>% 
+  left_join(
+    tbl_completion %>% rename(distance_pt_phys = distance) %>% select(-resp_i),
+    by = c("participant", "category", "rep", "cuedim", "cue_val", "respdim")
+    )
+
+
+
+tbl_gcm_results %>% 
+  mutate(distance = abs(distance)) %>%
+  rename(GCM = distance, `Physical PT` = distance_pt_phys) %>%
+  pivot_longer(c(GCM, `Physical PT`)) %>% 
+  ggplot(aes(value, group = name)) +
+  geom_density(aes(color = name)) +
+  theme_bw() +
+  scale_color_brewer(palette = "Set1", name = "Model") +
+  labs(x = "Distance", y = "Density")
+
+tbl_gcm_results %>% 
+  rename(GCM = distance) %>%
+  ggplot(aes(GCM)) +
+  geom_density() +
+  theme_bw() +
+  scale_color_brewer(palette = "Set1", name = "Model") +
+  labs(x = "Distance", y = "Density")
+
+ggplot(tbl_gcm_results %>% filter(category == "A"), aes(resp_i, group = cuedim)) +
+  geom_density() +
+  facet_grid(cuedim ~ cue_val)
+
+
+tbl_lookup <- map(l_gcm_results, "tbl_lookup") %>% reduce(rbind)
+write.csv(tbl_lookup, "data/infpro_task-cat_beh/gcm-inference-distances.csv")
+
+# plot heat maps for some exemplary participants
+# cue x1
+ggplot(
+  tbl_lookup %>% 
+    filter(participant > 140 & participant %% 2 == 0) %>%
+    mutate(category = str_c("Category = ", category))
+  , aes(d1i, resp_i)
+) + geom_tile(aes(fill = distance)) +
+  facet_grid(participant ~ category) +
+  scale_fill_gradient2(name = "Distance", low = "#FF6666", high = "#339966") +
+  scale_x_continuous(breaks = seq(0, 10, by = 2)) +
+  scale_y_continuous(breaks = seq(0, 10, by = 2)) +
+  theme_bw() +
+  labs(x = "Cue", y = "Response")
+
+
+# cue x2
+ggplot(
+  tbl_lookup %>% 
+    filter(participant > 140 & participant %% 2 == 1) %>%
+    mutate(category = str_c("Category = ", category))
+  , aes(resp_i, d2i)
+  ) + geom_tile(aes(fill = distance)) +
+  facet_grid(participant ~ category) +
+  scale_fill_gradient2(name = "Distance", low = "#FF6666", high = "#339966") +
+  scale_x_continuous(breaks = seq(0, 10, by = 2)) +
+  scale_y_continuous(breaks = seq(0, 10, by = 2)) +
+  theme_bw() +
+  labs(x = "Response", y = "Cue")
+
+
+
+
+
+l_posteriors <- map(p_ids, load_parameter_posteriors)
+l_c <- map(l_posteriors, ~ .x$gcm$c)
+tbl_c <- reduce(l_c, cbind) %>% as.data.frame()
+colnames(tbl_c) <- p_ids
+tbl_c$trial_id <- 1:nrow(tbl_c)
+tbl_c %>% pivot_longer(-trial_id) %>%
+  ggplot(aes(value)) +
+  geom_histogram(color = "white", fill = "dodgerblue") +
+  facet_wrap(~ name)
