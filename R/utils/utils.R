@@ -166,8 +166,8 @@ data {
   array[n_stim] int n_trials; // n trials
   array[n_stim] int n_correct; // n correct categorization responses
   array[n_stim] int cat; // actual category for a given stimulus
-  array[n_stim, n_cat] real<lower=0> d1;
-  array[n_stim, n_cat] real<lower=0> d2;
+  array[n_stim, n_cat] real<lower=0> d1;  // distances dimension 1
+  array[n_stim, n_cat] real<lower=0> d2;  // distances dimension 2
 
   int n_stim_predict;
   array[n_stim_predict] int n_trials_predict; // n trials on test set
@@ -183,6 +183,94 @@ parameters {
   real <lower=0> c;
   //real <lower=0,upper=1> w;
   simplex[n_cat] bs;
+}
+
+transformed parameters {
+  array[n_stim, n_cat] real <lower=0,upper=1> s;
+  array[n_stim, n_cat] real <lower=0> sim_bs;
+  array[n_stim] real <lower=0,upper=1> theta;
+
+  // Similarities
+  for (i in 1:n_stim) {
+    for (k in 1:n_cat) {
+      s[i, k] = exp(-square(c)*(.5*square(d1[i, k])+(.5)*square(d2[i, k])));
+      sim_bs[i, k] = s[i,k] * bs[k];
+    }
+    theta[i] = sim_bs[i, cat[i]] / sum(sim_bs[i, ]);
+  }
+}
+
+model {
+  n_correct ~ binomial(n_trials, theta);
+  c ~ uniform(0, 10);
+  //w ~ beta(1, 1);
+
+}
+
+generated quantities {
+  array[n_stim_predict] real log_lik_pred;
+  array[n_stim_predict, n_cat] real <lower=0,upper=1> s_predict;
+  array[n_stim_predict, n_cat] real <lower=0> sim_bs_predict;
+  array[n_stim_predict] real <lower=0,upper=1> theta_predict;
+
+
+  // Similarities
+  for (i in 1:n_stim_predict) {
+    for (k in 1:n_cat) {
+      s_predict[i, k] = exp(-square(c)*(.5*square(d1_predict[i,k])+(.5)*square(d2_predict[i,k])));
+      sim_bs_predict[i, k] = s_predict[i,k] * bs[k];
+    }
+    theta_predict[i] = sim_bs_predict[i, cat_predict[i]] / sum(sim_bs_predict[i, ]);
+    log_lik_pred[i] = binomial_lpmf(n_correct_predict[i] | n_trials_predict[i], theta_predict[i]);
+  }
+
+}
+
+")
+}
+
+
+write_flexprototype_stan_file_predict <- function() {
+  write_stan_file("
+data {
+  int n_stim;
+  int n_cat;
+  array[n_stim] int n_trials; // n trials
+  array[n_stim] int n_correct; // n correct categorization responses
+  array[n_stim] int cat; // actual category for a given stimulus
+  array[n_stim, n_cat] real<lower=0> d1;  // distances dimension 1
+  array[n_stim, n_cat] real<lower=0> d2;  // distances dimension 2
+
+  int n_stim_predict;
+  array[n_stim_predict] int n_trials_predict; // n trials on test set
+  array[n_stim_predict] int n_correct_predict; // n correct categorization responses on test set
+  array[n_stim_predict] int cat_predict; // actual category for a given stimulus
+  array[n_stim_predict, n_cat] real<lower=0> d1_predict;
+  array[n_stim_predict, n_cat] real<lower=0> d2_predict;
+
+
+ int D; //number of dimensions
+ int K; //number of categories
+ int N; //number of data
+ int n_stim; // nr of different stimuli
+ array[K] int n_response_per_cat;
+ array[n_stim] int cat_true; // true category for a stimulus
+ array[N] int cat; //category response for a stimulus
+ matrix[N, D] y;
+ matrix[n_stim, D] y_unique;
+ array[n_stim] int n_correct_predict; // n correct categorization responses on test set
+ array[n_stim] int n_trials_per_item;
+
+}
+
+
+parameters {
+  real <lower=0> c;
+  //real <lower=0,upper=1> w;
+  simplex[n_cat] bs;
+  
+ ordered[n_cat] mu1; //category means dim1
+ ordered[n_cat] mu2; //category means dim2
 }
 
 transformed parameters {

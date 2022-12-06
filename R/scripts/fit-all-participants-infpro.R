@@ -1,6 +1,6 @@
 library(tidyverse)
 library(cmdstanr)
-library(rutils)
+# library(rutils)
 library(ggrepel)
 library(grid)
 library(gridExtra)
@@ -87,6 +87,7 @@ pl_train <- plot_average_categorization_accuracy(tbl_train_last, "Train")
 pl_tf <- plot_average_categorization_accuracy(tbl_transfer, "Transfer")
 marrangeGrob(list(pl_train, pl_tf), ncol = 2, nrow = 1)
 
+# Aggregate table with length = participants*categories*stimIDs
 tbl_train_agg <- aggregate_by_stimulus_and_response(tbl_stim_id, tbl_train_last)
 tbl_transfer_agg <- aggregate_by_stimulus_and_response(tbl_stim_id_transfer, tbl_transfer)
 tbl_train_agg_overall <- tbl_train_agg %>%
