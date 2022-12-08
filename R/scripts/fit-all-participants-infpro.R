@@ -159,7 +159,7 @@ l_gcm_results <- map(l_loo_gcm, "result")
 map(l_loo_gcm, "error") %>% reduce(c)
 
 
-# Prototype ---------------------------------------------------------------------
+# Fixed Prototype --------------------------------------------------------------
 
 tbl_both_agg <- rbind(tbl_train_agg, tbl_transfer_agg)
 l_tbl_both_agg <- split(tbl_both_agg, tbl_both_agg$participant)
@@ -183,6 +183,32 @@ l_loo_prototype <- readRDS(file = "data/infpro_task-cat_beh/prototype-loos.RDS")
 l_prototype_results <- map(l_loo_prototype, "result")
 # not ok
 map(l_loo_prototype, "error") %>% reduce(c)
+
+
+# Flexible Prototype -----------------------------------------------------------
+
+tbl_both_agg <- rbind(tbl_train_agg, tbl_transfer_agg)
+l_tbl_both_agg <- split(tbl_both_agg, tbl_both_agg$participant)
+
+stan_flexprototype <- write_flexprototype_stan_file_predict()
+mod_flexprototype <- cmdstan_model(stan_flexprototype)
+safe_flexprototype <- safely(bayesian_flexprototype)
+
+options(warn = -1)
+l_loo_flexprototype <- furrr::future_map(
+  l_tbl_both_agg, safe_flexprototype, 
+  l_stan_params = l_stan_params, 
+  mod_flexprototype = mod_flexprototype, 
+  .progress = TRUE
+)
+options(warn = 0)
+saveRDS(l_loo_flexprototype, file = "data/infpro_task-cat_beh/flexprototype-loos.RDS")
+l_loo_prototype <- readRDS(file = "data/infpro_task-cat_beh/flexprototype-loos.RDS")
+
+# ok
+l_flexprototype_results <- map(l_loo_flexprototype, "result")
+# not ok
+map(l_loo_flexprototype, "error") %>% reduce(c)
 
 
 # Gaussian ----------------------------------------------------------------
