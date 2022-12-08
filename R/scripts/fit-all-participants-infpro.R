@@ -187,20 +187,27 @@ map(l_loo_prototype, "error") %>% reduce(c)
 
 # Flexible Prototype -----------------------------------------------------------
 
+utils_loc <- c("R/utils/plotting-utils.R", "R/utils/utils.R")
+walk(utils_loc, source)
+
 tbl_both_agg <- rbind(tbl_train_agg, tbl_transfer_agg)
 l_tbl_both_agg <- split(tbl_both_agg, tbl_both_agg$participant)
 
+l_tbl_both <- split(tbl_both, tbl_both$participant)
+
 stan_flexprototype <- write_flexprototype_stan_file_predict()
-mod_flexprototype <- cmdstan_model(stan_flexprototype)
+mod_flexprototype <- cmdstan_model(stan_flexprototype, force_recompile = TRUE )
 safe_flexprototype <- safely(bayesian_flexprototype)
 
 options(warn = -1)
-l_loo_flexprototype <- furrr::future_map(
-  l_tbl_both_agg, safe_flexprototype, 
+l_loo_flexprototype <- furrr::future_map2(
+  l_tbl_both, l_tbl_both_agg, safe_flexprototype, 
   l_stan_params = l_stan_params, 
-  mod_flexprototype = mod_flexprototype, 
+  mod_prototype = mod_flexprototype, 
   .progress = TRUE
 )
+
+
 options(warn = 0)
 saveRDS(l_loo_flexprototype, file = "data/infpro_task-cat_beh/flexprototype-loos.RDS")
 l_loo_prototype <- readRDS(file = "data/infpro_task-cat_beh/flexprototype-loos.RDS")
