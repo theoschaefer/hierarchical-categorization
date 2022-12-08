@@ -235,19 +235,21 @@ write_flexprototype_stan_file_predict <- function() {
 data {
   int n_stim;
   int n_cat;
+  int n_dim;  // number of dimensions
   array[n_stim] int n_trials; // n trials
   array[n_stim] int n_correct; // n correct categorization responses
   array[n_stim] int cat; // actual category for a given stimulus
-  array[n_stim, n_cat] real<lower=0> d1;  // distances dimension 1
-  array[n_stim, n_cat] real<lower=0> d2;  // distances dimension 2
-
+  // array[n_stim, n_cat] real<lower=0> d1;  // distances dimension 1
+  // array[n_stim, n_cat] real<lower=0> d2;  // distances dimension 2
+  matrix[n_stim, n_dim] y;
+  
   int n_stim_predict;
   array[n_stim_predict] int n_trials_predict; // n trials on test set
   array[n_stim_predict] int n_correct_predict; // n correct categorization responses on test set
   array[n_stim_predict] int cat_predict; // actual category for a given stimulus
-  array[n_stim_predict, n_cat] real<lower=0> d1_predict;
-  array[n_stim_predict, n_cat] real<lower=0> d2_predict;
-
+  // array[n_stim_predict, n_cat] real<lower=0> d1_predict;
+  // array[n_stim_predict, n_cat] real<lower=0> d2_predict;
+  matrix[n_stim_predict, n_dim] y_predict;
 
  int D; //number of dimensions
  int K; //number of categories
@@ -269,14 +271,25 @@ parameters {
   //real <lower=0,upper=1> w;
   simplex[n_cat] bs;
   
- ordered[n_cat] mu1; //category means dim1
- ordered[n_cat] mu2; //category means dim2
+  ordered[n_cat] mu1; //category means dim1
+  ordered[n_cat] mu2; //category means dim2
 }
 
 transformed parameters {
+  array[n_stim, n_cat] real<lower=0> d1;  // distances dimension 1
+  array[n_stim, n_cat] real<lower=0> d2;  // distances dimension 2
+
   array[n_stim, n_cat] real <lower=0,upper=1> s;
   array[n_stim, n_cat] real <lower=0> sim_bs;
   array[n_stim] real <lower=0,upper=1> theta;
+
+  // Distances
+  for (i in 1:n_stim) {
+    for (k in 1:n_cat) {
+      d1[i, k] = abs(y[i,1] - mu1[k])
+      d2[i, k] = abs(y[i,2] - mu2[k])
+    }
+  }
 
   // Similarities
   for (i in 1:n_stim) {
@@ -293,14 +306,29 @@ model {
   c ~ uniform(0, 10);
   //w ~ beta(1, 1);
 
+  mu1[1] ~ normal(-1.5, .5);
+  mu1[2] ~ normal(0, .5);
+  mu1[3] ~ normal(1.5, .5);
+  mu2[1] ~ normal(-1.5, .5);
+  mu2[2] ~ normal(0, .5);
+  mu2[3] ~ normal(1.5, .5);
 }
 
 generated quantities {
+  array[n_stim_predict, n_cat] real<lower=0> d1_predict;
+  array[n_stim_predict, n_cat] real<lower=0> d2_predict;
   array[n_stim_predict] real log_lik_pred;
   array[n_stim_predict, n_cat] real <lower=0,upper=1> s_predict;
   array[n_stim_predict, n_cat] real <lower=0> sim_bs_predict;
   array[n_stim_predict] real <lower=0,upper=1> theta_predict;
 
+  // Distances
+  for (i in 1:n_stim) {
+    for (k in 1:n_cat) {
+      d1_predict[i, k] = abs(y_predict[i,1] - mu1[k])
+      d1_predict[i, k] = abs(y_predict[i,2] - mu2[k])
+    }
+  }
 
   // Similarities
   for (i in 1:n_stim_predict) {
