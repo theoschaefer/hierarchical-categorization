@@ -204,13 +204,13 @@ l_loo_flexprototype <- furrr::future_map2(
   l_tbl_both, l_tbl_both_agg, safe_flexprototype, 
   l_stan_params = l_stan_params, 
   mod_prototype = mod_flexprototype, 
-  .progress = TRUE
+  .progress = TRUE  
 )
 
 
 options(warn = 0)
 saveRDS(l_loo_flexprototype, file = "data/infpro_task-cat_beh/flexprototype-loos.RDS")
-l_loo_prototype <- readRDS(file = "data/infpro_task-cat_beh/flexprototype-loos.RDS")
+l_loo_flexprototype <- readRDS(file = "data/infpro_task-cat_beh/flexprototype-loos.RDS")
 
 # ok
 l_flexprototype_results <- map(l_loo_flexprototype, "result")
@@ -269,7 +269,7 @@ map(l_loo_multi, "error") %>% reduce(c)
 safe_weights <- safely(loo_model_weights)
 
 l_loo_weights <- pmap(
-  list(l_gcm_results, l_prototype_results), # l_gaussian_results, l_multi_results 
+  list(l_gcm_results, l_gaussian_results), # l_gcm_results, l_flexprototype_results, l_gaussian_results, l_multi_results 
   ~ safe_weights(list(..1, ..2)), #, , ..3
   method = "stacking"
 )
@@ -287,6 +287,7 @@ ggplot(tbl_weights, aes(weight_prototype)) +
   labs(x = "Model Weight Prototype Model", y = "Nr. Participants")
 
 saveRDS(tbl_weights, file = "data/infpro_task-cat_beh/model-weights.rds")
+
 
 # Distribution of Model Parameters ----------------------------------------
 
