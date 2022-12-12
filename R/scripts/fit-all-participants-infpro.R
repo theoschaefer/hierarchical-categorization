@@ -196,7 +196,7 @@ l_tbl_both_agg <- split(tbl_both_agg, tbl_both_agg$participant)
 l_tbl_both <- split(tbl_both, tbl_both$participant)
 
 stan_flexprototype <- write_flexprototype_stan_file_predict()
-mod_flexprototype <- cmdstan_model(stan_flexprototype, force_recompile = TRUE )
+mod_flexprototype <- cmdstan_model(stan_flexprototype, force_recompile=TRUE)
 safe_flexprototype <- safely(bayesian_flexprototype)
 
 options(warn = -1)

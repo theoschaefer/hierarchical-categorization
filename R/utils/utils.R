@@ -291,7 +291,8 @@ transformed parameters {
           count1 += 1;
         }
         if (y[i,2] == y_unique[st,2]) {
-          d2[st, k] += abs(y[i,2] - sort_desc(mu2[k]));
+          // d2[st, k] += abs(y[i,2] - mu2[k]);
+          d2[st, k] += abs(y[i,2] - sort_desc(mu2)[k]);
           count2 += 1;
         }
       }
@@ -350,7 +351,8 @@ generated quantities {
           count1 += 1;
         }
         if (y_predict[i,2] == y_unique_predict[st,2]) {
-          d2_predict[st, k] += abs(y_predict[i,2] - sort_desc(mu2[k]));
+          // d2_predict[st, k] += abs(y_predict[i,2] - mu2[k]);
+          d2_predict[st, k] += abs(y_predict[i,2] - sort_desc(mu2)[k]);
           count2 += 1;
         }
       }
@@ -1030,7 +1032,7 @@ bayesian_flexprototype <- function(tbl_participant, tbl_participant_agg, l_stan_
     n_correct_predict = tbl_gcm_transfer$n_responses,
     cat_predict = tbl_gcm_transfer$category_int,
     y_predict = tbl_transfer[, c("d1i_z", "d2i_z")] %>% as.matrix(),
-    y_unique_predict = tbl_gcm_transfer[, c("d1i_z", "d2i_z")] %>% as.matrix()(),
+    y_unique_predict = tbl_gcm_transfer[, c("d1i_z", "d2i_z")] %>% as.matrix()
   )
   
   
