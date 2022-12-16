@@ -1041,31 +1041,40 @@ bayesian_flexprototype <- function(tbl_participant, tbl_participant_agg, l_stan_
     iter_sampling = l_stan_params$n_samples, iter_warmup = l_stan_params$n_warmup
   )
   
-  file_loc <- str_c("data/infpro_task-cat_beh/models/prototype-model-", participant_sample, ".RDS")
-  fit_gcm$save_object(file = file_loc)
+  file_loc <- str_c("data/infpro_task-cat_beh/models/flexprototype-model-", participant_sample, ".RDS")
+  # fit_gcm$save_object(file = file_loc)
   
   loo_gcm <- fit_gcm$loo(variables = "log_lik_pred")
   
-  pars_interest <- c("theta_predict", "bs", "c") # , "w")
-  pars_interest_no_theta <- c("bs", "c") # , "w")
+  pars_interest <- c("mu1", "mu2", "theta_predict", "bs", "c") # , "w")
+  pars_interest_no_theta <- c("mu1", "mu2", "bs", "c") # , "w")
   tbl_draws <- fit_gcm$draws(variables = pars_interest, format = "df")
+  tbl_draws <- tbl_draws %>% rename(`mu2[1]` = `mu2[3]`, `mu2[3]` = `mu2[1]`)
   
   names_thetas <- names(tbl_draws)[startsWith(names(tbl_draws), "theta_predict")]
   tbl_gcm_transfer$pred_theta <- colMeans(tbl_draws[, names_thetas])
   tbl_gcm_transfer$pred_difference <- tbl_gcm_transfer$pred_theta - tbl_gcm_transfer$prop_responses
   
   
-  tbl_summary <- fit_gcm$summary(variables = c("theta", "bs", "c"))
+  tbl_summary <- fit_gcm$summary(variables = c("mu1", "mu2", "theta", "bs", "c"))
+  # rename to correct for reverse ordering in stan model
+  old_3 <- tbl_summary$variable == "mu2[3]"
+  old_1 <- tbl_summary$variable == "mu2[1]"
+  tbl_summary$variable[old_3] <- "mu2[1]"
+  tbl_summary$variable[old_1] <- "mu2[3]"
+  
   tbl_summary_nok <- tbl_summary %>% filter(rhat > 1.02 | rhat < 0.98)
   if (nrow(tbl_summary_nok) > 0) {
     stop(str_c(
       "participant = ", participant_sample, "; Rhat for some parameters not ok; ",
-      "model can be found under: ",
+      "model can be found under: ", file_loc
     ))
   }
+  
+
   tbl_summary$participant <- participant_sample
-  file_loc <- str_c("data/infpro_task-cat_beh/models/prototype-summary-", participant_sample, ".RDS")
-  saveRDS(tbl_summary, file_loc)
+  file_loc <- str_c("data/infpro_task-cat_beh/models/flexprototype-summary-", participant_sample, ".RDS")
+  # saveRDS(tbl_summary, file_loc)
   
   idx_no_theta <- map(pars_interest_no_theta, ~ str_detect(tbl_summary$variable, .x)) %>%
     reduce(rbind) %>%
@@ -1079,13 +1088,13 @@ bayesian_flexprototype <- function(tbl_participant, tbl_participant_agg, l_stan_
     filter(parameter != "chain")
   tbl_posterior$parameter <- fct_inorder(tbl_posterior$parameter)
   
-  pl_thetas <- plot_item_thetas(tbl_gcm_transfer, str_c("GCM; Participant = ", participant_sample))
-  pl_posteriors <- plot_posteriors(tbl_posterior, tbl_label)
+  pl_thetas <- plot_item_thetas(tbl_gcm_transfer, str_c("Flex-Prototype; Participant = ", participant_sample))
+  pl_posteriors <- plot_posteriors(tbl_posterior, tbl_label, n_cols=3)
   pl_pred_uncertainty <- plot_proportion_responses(tbl_gcm_transfer, participant_sample, color_pred_difference = TRUE)
   
   # save plots
   c_names <- function(x, y) str_c("data/infpro_task-cat_beh/model-plots/", x, y, ".png")
-  l_pl_names <- map(c("prototype-thetas-", "prototype-posteriors-", "prototype-uncertainty-"), c_names, y = participant_sample)
+  l_pl_names <- map(c("flexprototype-thetas-", "flexprototype-posteriors-", "flexprototype-uncertainty-"), c_names, y = participant_sample)
   l_pl <- list(pl_thetas, pl_posteriors, pl_pred_uncertainty)
   l_vals_size <- list(c(3.5, 3.5), c(8.5, 3), c(7.5, 7.5))
   pwalk(list(l_pl, l_pl_names, l_vals_size), save_my_png)
@@ -1174,8 +1183,12 @@ bayesian_gaussian_naive_bayes <- function(tbl_participant, tbl_participant_agg, 
     rename(chain = .chain) %>%
     pivot_longer(starts_with(pars_interest_no_theta), names_to = "parameter", values_to = "value") %>%
     filter(parameter != "chain")
-  tbl_posterior$parameter <- fct_inorder(tbl_posterior$parameter)
-
+  # tbl_posterior$parameter <- fct_inorder(tbl_posterior$parameter)
+  tbl_posterior$parameter <- factor(tbl_posterior$parameter, 
+                                    levels=c('mu1[1]','mu1[2]','mu1[3]',
+                                             'mu2[1]','mu2[2]','mu2[3]',
+                                             'bs[1]','bs[2]','bs[3]','c'))
+  
   pl_thetas <- plot_item_thetas(tbl_participant_agg, str_c("Gaussian 1D; Participant = ", participant_sample))
   pl_posteriors <- plot_posteriors(tbl_posterior, tbl_label, n_cols = 3)
   pl_pred_uncertainty <- plot_proportion_responses(tbl_participant_agg, participant_sample, color_pred_difference = TRUE)
@@ -1188,7 +1201,7 @@ bayesian_gaussian_naive_bayes <- function(tbl_participant, tbl_participant_agg, 
     y = participant_sample
   )
   l_pl <- list(pl_thetas, pl_posteriors, pl_pred_uncertainty)
-  l_vals_size <- list(c(3.5, 3.5), c(7.5, 8.5), c(7.5, 7.5))
+  l_vals_size <- list(c(3.5, 3.5), c(7.5, 7.5), c(7.5, 7.5))
   pwalk(list(l_pl, l_pl_names, l_vals_size), save_my_png)
 
   return(loo_gaussian)

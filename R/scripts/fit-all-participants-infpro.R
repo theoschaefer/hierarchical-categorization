@@ -207,7 +207,6 @@ l_loo_flexprototype <- furrr::future_map2(
   .progress = TRUE  
 )
 
-
 options(warn = 0)
 saveRDS(l_loo_flexprototype, file = "data/infpro_task-cat_beh/flexprototype-loos.RDS")
 l_loo_flexprototype <- readRDS(file = "data/infpro_task-cat_beh/flexprototype-loos.RDS")
@@ -286,7 +285,7 @@ ggplot(tbl_weights, aes(weight_prototype)) +
   theme_bw() +
   labs(x = "Model Weight Prototype Model", y = "Nr. Participants")
 
-saveRDS(tbl_weights, file = "data/infpro_task-cat_beh/model-weights.rds")
+saveRDS(tbl_weights, file = "data/infpro_task-cat_beh/model-weights_gaussian-gcm.rds")
 
 
 # Distribution of Model Parameters ----------------------------------------
